@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "bifrost": {
+      "baseUrl": "http://127.0.0.1:{{ ports.bifrost }}/v1",
+      "api": "openai-responses",
+      "apiKey": {{ generated_secrets.bifrost_virtual_key | to_json }},
+      "models": [
+        {
+          "id": {{ services.pi.default_model | to_json }},
+          "name": "{{ services.pi.default_model }} through Bifrost and CLIProxyAPI",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 200000,
+          "maxTokens": 32768,
+          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-vm"
+version = "0.1.0"
+description = "Provision a private Kandev/Pi/Bifrost/CLIProxyAPI development VM"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+agent-vm = "agent_vm.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

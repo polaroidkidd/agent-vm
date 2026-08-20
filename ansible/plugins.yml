@@ -1,0 +1,65 @@
+---
+- name: Install Oh My Zsh from its upstream archive
+  ansible.builtin.shell: |
+    set -eu
+    target=/home/{{ agent_user }}/.oh-my-zsh
+    if [ ! -f "$target/oh-my-zsh.sh" ]; then
+      mkdir -p "$target"
+      curl -fsSL https://github.com/ohmyzsh/ohmyzsh/archive/refs/heads/master.tar.gz |
+        tar -xz --strip-components=1 -C "$target"
+    fi
+  args:
+    executable: /bin/bash
+    creates: "/home/{{ agent_user }}/.oh-my-zsh/oh-my-zsh.sh"
+  become_user: "{{ agent_user }}"
+
+- name: Install repository-backed custom plugins from upstream archives
+  ansible.builtin.shell: |
+    set -eu
+    target=/home/{{ agent_user }}/.oh-my-zsh/custom/plugins/{{ item.name }}
+    if [ ! -d "$target" ]; then
+      mkdir -p "$target"
+      curl -fsSL "{{ item.url }}" | tar -xz --strip-components=1 -C "$target"
+    fi
+  args:
+    executable: /bin/bash
+    creates: "/home/{{ agent_user }}/.oh-my-zsh/custom/plugins/{{ item.name }}"
+  become_user: "{{ agent_user }}"
+  loop:
+    - {name: zsh-autocomplete, url: "https://github.com/marlonrichert/zsh-autocomplete/archive/refs/heads/main.tar.gz"}
+    - {name: zsh-autosuggestions, url: "https://github.com/zsh-users/zsh-autosuggestions/archive/refs/heads/master.tar.gz"}
+    - {name: zsh-better-pnpm-completion, url: "https://github.com/akccakcctw/zsh-better-pnpm-completion/archive/refs/heads/master.tar.gz"}
+    - {name: zsh-completions, url: "https://github.com/zsh-users/zsh-completions/archive/refs/heads/master.tar.gz"}
+    - {name: zsh-pyenv, url: "https://github.com/mattberther/zsh-pyenv/archive/refs/heads/master.tar.gz"}
+    - {name: zsh-syntax-highlighting, url: "https://github.com/zsh-users/zsh-syntax-highlighting/archive/refs/heads/master.tar.gz"}
+
+- name: Create command-generated custom plugin directories
+  ansible.builtin.file:
+    path: "/home/{{ agent_user }}/.oh-my-zsh/custom/plugins/{{ item }}"
+    state: directory
+    owner: "{{ agent_user }}"
+    group: "{{ agent_user }}"
+    mode: "0755"
+  loop:
+    - kubectl-autocomplete
+    - netbird
+    - oc
+    - pnpm-shell-completion
+    - yarn-autocompletions
+
+- name: Install guarded command completion shims
+  ansible.builtin.copy:
+    dest: "/home/{{ agent_user }}/.oh-my-zsh/custom/plugins/{{ item.name }}/{{ item.name }}.plugin.zsh"
+    owner: "{{ agent_user }}"
+    group: "{{ agent_user }}"
+    mode: "0644"
+    content: |
+      if (( $+commands[{{ item.command }}] )); then
+        source <({{ item.completion }})
+      fi
+  loop:
+    - {name: kubectl-autocomplete, command: kubectl, completion: "kubectl completion zsh"}
+    - {name: netbird, command: netbird, completion: "netbird completion zsh"}
+    - {name: oc, command: oc, completion: "oc completion zsh"}
+    - {name: pnpm-shell-completion, command: pnpm, completion: "pnpm completion zsh"}
+    - {name: yarn-autocompletions, command: yarn, completion: "yarn completion zsh"}

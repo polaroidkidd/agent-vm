@@ -1,0 +1,47 @@
+schema_version: 1
+
+# Copy this file to agent-vm.yaml, set the required values, and run chmod 600.
+NB_HOSTNAME: agent-vm
+NB_MANAGEMENT_URL: 
+NB_SETUP_KEY: replace-with-the-setup-key
+
+vm:
+  name: agent-vm
+  architecture: x86_64
+  vcpus: 4
+  memory_gib: 16
+  disk_gib: 100
+  libvirt_network: default
+  os_variant: ubuntu24.04
+  image:
+    url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    checksum_url: https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+
+guest:
+  user: agent
+  workspace_dir: /home/agent/workspaces
+  timezone: Europe/Zurich
+  console_agent_password: replace-with-an-agent-console-password
+  console_root_password: replace-with-a-console-root-password
+
+ports:
+  kandev: 38429
+  bifrost: 8080
+  cliproxyapi: 8317
+
+services:
+  node_major: 22
+  kandev:
+    npm_package: kandev
+  pi:
+    npm_package: "@earendil-works/pi-coding-agent"
+    default_model: gpt-5.6-sol
+  bifrost:
+    npm_package: "@maximhq/bifrost"
+  cliproxyapi:
+    github_repository: router-for-me/CLIProxyAPI
+    asset_pattern: "CLIProxyAPI_.*_linux_amd64\\.tar\\.gz$"
+
+local:
+  state_dir: .state
+  cache_dir: .cache

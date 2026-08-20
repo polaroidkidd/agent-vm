@@ -1,0 +1,15 @@
+host: "0.0.0.0"
+port: {{ ports.cliproxyapi }}
+tls:
+  enable: false
+remote-management:
+  allow-remote: true
+  secret-key: {{ generated_secrets.cliproxy_management_secret | to_json }}
+  disable-control-panel: false
+  panel-github-repository: "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+auth-dir: "/home/{{ agent_user }}/.config/cliproxyapi/auth"
+api-keys:
+  - {{ generated_secrets.cliproxy_api_key | to_json }}
+debug: false
+pprof:
+  enable: false

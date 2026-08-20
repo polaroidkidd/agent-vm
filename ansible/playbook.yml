@@ -1,0 +1,519 @@
+---
+- name: Provision agent VM
+  hosts: agent_vm
+  become: true
+  gather_facts: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+  pre_tasks:
+    - name: Require Ubuntu 24.04 x86-64 guest
+      ansible.builtin.assert:
+        that:
+          - ansible_facts["distribution"] == "Ubuntu"
+          - ansible_facts["distribution_version"] is version('24.04', '>=')
+          - ansible_facts["architecture"] == "x86_64"
+        fail_msg: Only Ubuntu 24.04 x86-64 guests are supported
+      tags: [always]
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - ca-certificates
+          - curl
+          - git
+          - jq
+          - openssh-server
+          - python3
+          - python3-debian
+          - tar
+          - ufw
+          - unzip
+          - zsh
+        state: present
+        update_cache: true
+      tags: [base]
+
+    - name: Ensure agent account configuration
+      ansible.builtin.user:
+        name: "{{ agent_user }}"
+        shell: /usr/bin/zsh
+        groups: sudo
+        append: true
+        create_home: true
+        password: "{{ agent_console_password_hash }}"
+        password_lock: false
+        update_password: always
+      no_log: true
+      tags: [base]
+
+    - name: Create agent directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: "{{ workspace_dir }}", mode: "0750"}
+        - {path: "/home/{{ agent_user }}/.ssh", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.config", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.config/bifrost", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.config/cliproxyapi", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.cache", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.cache/bifrost", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.npm", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.kandev", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.pi/agent", mode: "0700"}
+      tags: [base, shell, services]
+
+    - name: Install GitHub SSH private key
+      ansible.builtin.copy:
+        content: "{{ github_private_key }}"
+        dest: "/home/{{ agent_user }}/.ssh/github_ed25519"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      no_log: true
+      tags: [base]
+
+    - name: Pin GitHub Ed25519 host key
+      ansible.builtin.copy:
+        content: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+        dest: "/home/{{ agent_user }}/.ssh/known_hosts"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      tags: [base]
+
+    - name: Configure SSH-only GitHub access
+      ansible.builtin.copy:
+        dest: "/home/{{ agent_user }}/.ssh/config"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+        content: |
+          Host github.com
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/github_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+      tags: [base]
+
+    - name: Force GitHub HTTPS remotes to SSH
+      community.general.git_config:
+        name: "url.git@github.com:.insteadOf"
+        value: "https://github.com/"
+        scope: global
+      become_user: "{{ agent_user }}"
+      tags: [base]
+
+    - name: Harden SSH daemon
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/90-agent-vm.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PubkeyAuthentication yes
+          AllowUsers {{ agent_user }}
+      notify: Restart ssh
+      tags: [base]
+
+    - name: Install NodeSource signing key
+      ansible.builtin.get_url:
+        url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+        dest: /etc/apt/keyrings/nodesource.asc
+        mode: "0644"
+      tags: [services]
+
+    - name: Remove legacy NodeSource list definition
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/nodesource.list
+        state: absent
+      tags: [services]
+
+    - name: Configure NodeSource repository
+      ansible.builtin.deb822_repository:
+        name: nodesource
+        types: [deb]
+        uris: "https://deb.nodesource.com/node_{{ node_major }}.x"
+        suites: [nodistro]
+        components: [main]
+        architectures: [amd64]
+        signed_by: /etc/apt/keyrings/nodesource.asc
+        state: present
+      tags: [services]
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: "{{ 'latest' if perform_update else 'present' }}"
+        update_cache: true
+      tags: [services]
+
+    - name: Remove legacy Pi package
+      community.general.npm:
+        name: "@mariozechner/pi-coding-agent"
+        global: true
+        state: absent
+      tags: [services, pi]
+
+    - name: Install exact npm service releases
+      community.general.npm:
+        name: "{{ item.package }}"
+        version: "{{ item.version }}"
+        global: true
+        state: present
+      loop:
+        - {package: "{{ services.kandev.npm_package }}", version: "{{ versions.kandev.version }}"}
+        - {package: "{{ services.pi.npm_package }}", version: "{{ versions.pi.version }}"}
+        - {package: "{{ services.bifrost.npm_package }}", version: "{{ versions.bifrost.version }}"}
+      tags: [services]
+
+    - name: Resolve installed Bifrost gateway binary
+      ansible.builtin.shell: |
+        set -eu
+        package_dir="$(npm root --global)/{{ services.bifrost.npm_package }}"
+        node -e '
+          const path = require("path");
+          const dir = process.argv[1];
+          const pkg = require(path.join(dir, "package.json"));
+          const relative = typeof pkg.bin === "string" ? pkg.bin : Object.values(pkg.bin || {})[0];
+          if (!relative) process.exit(2);
+          process.stdout.write(path.resolve(dir, relative));
+        ' "$package_dir"
+      args:
+        executable: /bin/bash
+      register: bifrost_binary
+      changed_when: false
+      tags: [services, bifrost]
+
+    - name: Activate Bifrost gateway binary
+      ansible.builtin.file:
+        src: "{{ bifrost_binary.stdout }}"
+        dest: /usr/local/bin/bifrost-gateway
+        state: link
+        force: true
+      notify: Restart Bifrost
+      tags: [services, bifrost]
+
+    - name: Create CLIProxyAPI release directory
+      ansible.builtin.file:
+        path: "/opt/cliproxyapi/{{ versions.cliproxyapi.version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [services, cliproxy]
+
+    - name: Download verified CLIProxyAPI archive
+      ansible.builtin.get_url:
+        url: "{{ versions.cliproxyapi.url }}"
+        dest: "/var/tmp/{{ versions.cliproxyapi.asset }}"
+        checksum: "sha256:{{ versions.cliproxyapi.sha256 }}"
+        mode: "0600"
+      tags: [services, cliproxy]
+
+    - name: Extract CLIProxyAPI
+      ansible.builtin.unarchive:
+        src: "/var/tmp/{{ versions.cliproxyapi.asset }}"
+        dest: "/opt/cliproxyapi/{{ versions.cliproxyapi.version }}"
+        remote_src: true
+        creates: "/opt/cliproxyapi/{{ versions.cliproxyapi.version }}/.installed"
+      tags: [services, cliproxy]
+
+    - name: Locate CLIProxyAPI binary
+      ansible.builtin.find:
+        paths: "/opt/cliproxyapi/{{ versions.cliproxyapi.version }}"
+        patterns: "cli-proxy-api"
+        file_type: file
+        recurse: true
+      register: cliproxy_binaries
+      tags: [services, cliproxy]
+
+    - name: Require one CLIProxyAPI binary
+      ansible.builtin.assert:
+        that: cliproxy_binaries.matched == 1
+        fail_msg: CLIProxyAPI archive did not contain exactly one cli-proxy-api binary
+      tags: [services, cliproxy]
+
+    - name: Activate CLIProxyAPI binary
+      ansible.builtin.file:
+        src: "{{ cliproxy_binaries.files[0].path }}"
+        dest: /usr/local/bin/cli-proxy-api
+        state: link
+        force: true
+      notify: Restart CLIProxyAPI
+      tags: [services, cliproxy]
+
+    - name: Mark CLIProxyAPI release installed
+      ansible.builtin.file:
+        path: "/opt/cliproxyapi/{{ versions.cliproxyapi.version }}/.installed"
+        state: touch
+        modification_time: preserve
+        access_time: preserve
+        mode: "0644"
+      tags: [services, cliproxy]
+
+    - name: Configure CLIProxyAPI
+      ansible.builtin.template:
+        src: cliproxyapi-config.yaml.j2
+        dest: "/home/{{ agent_user }}/.config/cliproxyapi/config.yaml"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      no_log: true
+      notify: Restart CLIProxyAPI
+      tags: [services, cliproxy]
+
+    - name: Install CLIProxyAPI systemd unit
+      ansible.builtin.template:
+        src: cliproxyapi.service.j2
+        dest: /etc/systemd/system/cliproxyapi.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart CLIProxyAPI
+      tags: [services, cliproxy]
+
+    - name: Configure Bifrost environment
+      ansible.builtin.template:
+        src: bifrost.env.j2
+        dest: "/home/{{ agent_user }}/.config/bifrost/bifrost.env"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      no_log: true
+      notify: Restart Bifrost
+      tags: [services, bifrost]
+
+    - name: Configure Bifrost
+      ansible.builtin.template:
+        src: bifrost-config.json.j2
+        dest: "/home/{{ agent_user }}/.config/bifrost/config.json"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      notify: Restart Bifrost
+      tags: [services, bifrost]
+
+    - name: Install Bifrost systemd unit
+      ansible.builtin.template:
+        src: bifrost.service.j2
+        dest: /etc/systemd/system/bifrost.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart Bifrost
+      tags: [services, bifrost]
+
+    - name: Remove interrupted Bifrost runtime downloads
+      ansible.builtin.shell: |
+        set -eu
+        find /home/{{ agent_user }}/.cache/bifrost \
+          -type f -name 'bifrost-http-*' ! -perm /111 -print -delete
+      args:
+        executable: /bin/bash
+      register: removed_bifrost_downloads
+      changed_when: removed_bifrost_downloads.stdout_lines | length > 0
+      notify: Restart Bifrost
+      tags: [services, bifrost]
+
+    - name: Install Kandev systemd unit
+      ansible.builtin.template:
+        src: kandev.service.j2
+        dest: /etc/systemd/system/kandev.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart Kandev
+      tags: [services, kandev]
+
+    - name: Configure Pi provider through Bifrost
+      ansible.builtin.template:
+        src: pi-models.json.j2
+        dest: "/home/{{ agent_user }}/.pi/agent/models.json"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+        force: false
+      no_log: true
+      tags: [services, pi]
+
+    - name: Configure Pi defaults
+      ansible.builtin.template:
+        src: pi-settings.json.j2
+        dest: "/home/{{ agent_user }}/.pi/agent/settings.json"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+        force: false
+      tags: [services, pi]
+
+    - name: Install Pi model catalog synchronizer
+      ansible.builtin.copy:
+        src: files/agent-vm-sync-pi-models
+        dest: /usr/local/bin/agent-vm-sync-pi-models
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [services, pi, bifrost]
+
+    - name: Install Oh My Zsh and plugins
+      ansible.builtin.include_tasks: plugins.yml
+      tags: [shell]
+
+    - name: Install portable zsh configuration
+      ansible.builtin.template:
+        src: zshrc.j2
+        dest: "/home/{{ agent_user }}/.zshrc"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0644"
+      tags: [shell]
+
+    - name: Install NetBird signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.netbird.io/debian/public.key
+        dest: /etc/apt/keyrings/netbird.asc
+        mode: "0644"
+      tags: [netbird]
+
+    - name: Remove legacy NetBird list definition
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/netbird.list
+        state: absent
+      tags: [netbird]
+
+    - name: Configure NetBird repository
+      ansible.builtin.deb822_repository:
+        name: netbird
+        types: [deb]
+        uris: https://pkgs.netbird.io/debian
+        suites: [stable]
+        components: [main]
+        signed_by: /etc/apt/keyrings/netbird.asc
+        state: present
+      tags: [netbird]
+
+    - name: Install NetBird client
+      ansible.builtin.apt:
+        name: netbird
+        state: "{{ 'latest' if perform_update else 'present' }}"
+        update_cache: true
+      tags: [netbird]
+
+    - name: Enroll NetBird client
+      ansible.builtin.command: netbird up
+      environment:
+        NB_HOSTNAME: "{{ netbird.hostname }}"
+        NB_MANAGEMENT_URL: "{{ netbird.management_url }}"
+        NB_SETUP_KEY: "{{ netbird.setup_key }}"
+      no_log: true
+      changed_when: false
+      tags: [netbird]
+
+    - name: Enable NetBird service
+      ansible.builtin.systemd_service:
+        name: netbird
+        enabled: true
+        state: started
+      tags: [netbird]
+
+    - name: Allow provisioning host SSH
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ ansible_facts['default_ipv4']['gateway'] }}"
+        port: "22"
+        proto: tcp
+      tags: [firewall]
+
+    - name: Allow NetBird-only inbound ports
+      community.general.ufw:
+        rule: allow
+        interface_in: wt0
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "22"
+        - "{{ ports.kandev }}"
+        - "{{ ports.bifrost }}"
+        - "{{ ports.cliproxyapi }}"
+      tags: [firewall]
+
+    - name: Set firewall policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - {direction: incoming, policy: deny}
+        - {direction: outgoing, policy: allow}
+      tags: [firewall]
+
+    - name: Enable firewall
+      community.general.ufw:
+        state: enabled
+      tags: [firewall]
+
+    - name: Enable CLIProxyAPI service
+      ansible.builtin.systemd_service:
+        name: cliproxyapi
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [services, cliproxy]
+
+    # Apply queued service changes before the enable tasks. In particular, do
+    # not start Bifrost and then immediately interrupt its first runtime
+    # download with an end-of-play handler restart.
+    - name: Apply pending service restarts
+      ansible.builtin.meta: flush_handlers
+      tags: [services, cliproxy, bifrost, kandev]
+
+    - name: Enable Bifrost service
+      ansible.builtin.systemd_service:
+        name: bifrost
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [services, bifrost]
+
+    - name: Enable Kandev service
+      ansible.builtin.systemd_service:
+        name: kandev
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [services, kandev]
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.systemd_service:
+        name: ssh
+        state: restarted
+
+    - name: Restart CLIProxyAPI
+      ansible.builtin.systemd_service:
+        name: cliproxyapi
+        state: restarted
+        daemon_reload: true
+
+    - name: Restart Bifrost
+      ansible.builtin.systemd_service:
+        name: bifrost
+        state: restarted
+        daemon_reload: true
+
+    - name: Restart Kandev
+      ansible.builtin.systemd_service:
+        name: kandev
+        state: restarted
+        daemon_reload: true

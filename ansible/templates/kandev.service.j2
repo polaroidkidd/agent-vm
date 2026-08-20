@@ -1,0 +1,27 @@
+[Unit]
+Description=Kandev agent development board
+After=network-online.target bifrost.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ agent_user }}
+Group={{ agent_user }}
+WorkingDirectory=/home/{{ agent_user }}
+Environment=HOME=/home/{{ agent_user }}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=KANDEV_HOME_DIR=/home/{{ agent_user }}/.kandev
+Environment=KANDEV_SERVER_HOST=0.0.0.0
+Environment=KANDEV_BACKEND_PORT={{ ports.kandev }}
+Environment=KANDEV_NO_BROWSER=1
+ExecStart=/usr/bin/kandev --headless --port {{ ports.kandev }}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/{{ agent_user }}/.kandev {{ workspace_dir }} /home/{{ agent_user }}/.pi /home/{{ agent_user }}/.npm
+
+[Install]
+WantedBy=multi-user.target

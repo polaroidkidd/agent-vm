@@ -1,0 +1,23 @@
+[Unit]
+Description=Bifrost AI gateway
+After=network-online.target cliproxyapi.service
+Wants=network-online.target
+Requires=cliproxyapi.service
+
+[Service]
+Type=simple
+User={{ agent_user }}
+Group={{ agent_user }}
+WorkingDirectory=/home/{{ agent_user }}/.config/bifrost
+EnvironmentFile=/home/{{ agent_user }}/.config/bifrost/bifrost.env
+ExecStart=/usr/local/bin/bifrost-gateway -host 0.0.0.0 -port {{ ports.bifrost }} -app-dir /home/{{ agent_user }}/.config/bifrost
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/{{ agent_user }}/.config/bifrost /home/{{ agent_user }}/.cache/bifrost
+
+[Install]
+WantedBy=multi-user.target

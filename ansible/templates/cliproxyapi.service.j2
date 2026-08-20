@@ -1,0 +1,21 @@
+[Unit]
+Description=CLIProxyAPI subscription proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ agent_user }}
+Group={{ agent_user }}
+WorkingDirectory=/home/{{ agent_user }}/.config/cliproxyapi
+ExecStart=/usr/local/bin/cli-proxy-api -config /home/{{ agent_user }}/.config/cliproxyapi/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/{{ agent_user }}/.config/cliproxyapi
+
+[Install]
+WantedBy=multi-user.target

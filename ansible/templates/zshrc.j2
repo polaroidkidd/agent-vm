@@ -1,0 +1,37 @@
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+
+fpath+=("$ZSH/custom/plugins/zsh-completions/src")
+
+plugins=(
+  sdk nvm z git ssh-agent sudo safe-paste
+  zsh-autosuggestions
+  pnpm-shell-completion kubectl-autocomplete netbird kubectl oc mvn
+  zsh-syntax-highlighting
+)
+
+source "$ZSH/oh-my-zsh.sh"
+
+export EDITOR="vim"
+export VISUAL="$EDITOR"
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+export WORKSPACES={{ workspace_dir | quote }}
+
+[[ -s "$HOME/.nvm/nvm.sh" ]] && source "$HOME/.nvm/nvm.sh"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+alias g='git'
+alias gst='git status --short --branch'
+alias gl='git pull --ff-only'
+alias gp='git push'
+
+function croot() {
+  local root
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || return
+  cd "$root"
+}
+
+function mkworktree() {
+  [[ $# -eq 2 ]] || { echo "usage: mkworktree <branch> <path>" >&2; return 2; }
+  git worktree add -b "$1" "$2"
+}

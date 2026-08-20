@@ -1,0 +1,23 @@
+# Runtime and secret material must never be tracked.
+config/agent-vm.yaml
+*.key
+*.pem
+*.p12
+*.agekey
+secrets/
+data/
+backups/
+artifacts/
+.ansible/
+*.retry
+
+# Generated local state.
+.state/
+.cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+.vscode/
+.DS_Store
