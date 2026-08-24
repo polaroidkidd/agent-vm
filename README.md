@@ -178,7 +178,11 @@ export OPENAI_API_KEY="$(jq -r .bifrost_virtual_key .state/secrets.json)"
 
 Inside the VM, use `http://127.0.0.1:8080/v1`. The requested model must be present in CLIProxyAPI's `/v1/models` response. Change `services.pi.default_model` in the YAML and rerun `configure-bifrost` to select a different default from the live catalog.
 
-Pi is installed and preconfigured with the Bifrost provider. In Kandev, open **Settings → Agents**, rescan the local host, select Pi, and review the generated local profile before starting work. Kandev runs Pi as the same `agent` account and uses local workspaces only.
+Pi is installed and preconfigured with the Bifrost provider. Changes to the
+managed Pi package restart Kandev so its local-agent discovery is refreshed. In
+Kandev, open **Settings → Agents**, rescan the local host, select Pi, and review
+the generated local profile before starting work. Kandev runs Pi as the same
+`agent` account and uses local workspaces only.
 
 The guest's Zsh configuration is a headless, portable adaptation of `polaroidkidd/regolith-dot-files`. It installs every real custom plugin found in the requested workstation inventory (the Oh My Zsh `example` placeholder is excluded), enables the portable active subset, and omits Kitty and workstation-only graphical helpers.
 

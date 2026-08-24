@@ -33,6 +33,13 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("ProtectHome=read-only", unit)
         self.assertIn("/home/{{ agent_user }}/.npm", unit.split("ReadWritePaths=", 1)[1])
 
+    def test_agent_package_changes_restart_kandev_for_rediscovery(self):
+        task = self.playbook.split("- name: Install exact npm service releases", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("services.pi.npm_package", task)
+        self.assertIn("notify: Restart Kandev", task)
+
     def test_bifrost_recovers_interrupted_runtime_download_before_one_final_start(self):
         cleanup = self.playbook.index("- name: Remove interrupted Bifrost runtime downloads")
         flush = self.playbook.index("- name: Apply pending service restarts")

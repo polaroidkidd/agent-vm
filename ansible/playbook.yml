@@ -190,6 +190,7 @@
         - {package: "{{ services.kandev.npm_package }}", version: "{{ versions.kandev.version }}"}
         - {package: "{{ services.pi.npm_package }}", version: "{{ versions.pi.version }}"}
         - {package: "{{ services.bifrost.npm_package }}", version: "{{ versions.bifrost.version }}"}
+      notify: Restart Kandev
       tags: [services]
 
     - name: Resolve installed Bifrost gateway binary

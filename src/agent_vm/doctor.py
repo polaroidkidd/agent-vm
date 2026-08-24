@@ -47,6 +47,24 @@ def _kandev_pi_capabilities(output: str) -> tuple[bool, str]:
     return True, f"Kandev ACP probe advertised {len(models)} model(s)"
 
 
+def _kandev_pi_discovery(output: str) -> tuple[bool, str]:
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return False, "Kandev agent discovery response was not valid JSON"
+    agents = data.get("agents") if isinstance(data, dict) else None
+    if not isinstance(agents, list):
+        return False, "Kandev agent discovery response was invalid"
+    pi = next(
+        (agent for agent in agents if isinstance(agent, dict) and agent.get("name") == "pi-acp"),
+        None,
+    )
+    if not pi or pi.get("available") is not True:
+        return False, "Kandev did not discover the installed Pi agent"
+    matched_path = str(pi.get("matched_path") or "Pi executable")
+    return True, f"Kandev discovered Pi at {matched_path}"
+
+
 def run_doctor(
     runner: Runner,
     config: Config,
@@ -120,6 +138,22 @@ def run_doctor(
         "integration:pi",
         "ready" if pi_version.returncode == 0 else "failed",
         pi_version.stdout.strip() or "Pi executable unavailable",
+    ))
+    kandev_discovery = _remote(
+        runner,
+        config,
+        state,
+        address,
+        f"curl -fsS --max-time 60 http://127.0.0.1:{config.ports['kandev']}/api/v1/agents/discovery",
+    )
+    discovery_ready, discovery_detail = _kandev_pi_discovery(kandev_discovery.stdout)
+    if kandev_discovery.returncode != 0:
+        discovery_ready = False
+        discovery_detail = "Kandev agent discovery request failed"
+    checks.append(Check(
+        "integration:kandev-agent-discovery",
+        "ready" if discovery_ready else "failed",
+        discovery_detail,
     ))
     kandev_pi = _remote(
         runner,

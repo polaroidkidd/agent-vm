@@ -1,6 +1,6 @@
 import unittest
 
-from agent_vm.doctor import _has_models, _kandev_pi_capabilities
+from agent_vm.doctor import _has_models, _kandev_pi_capabilities, _kandev_pi_discovery
 
 
 class DoctorTests(unittest.TestCase):
@@ -24,6 +24,21 @@ class DoctorTests(unittest.TestCase):
         ):
             with self.subTest(response=response):
                 self.assertFalse(_kandev_pi_capabilities(response)[0])
+
+    def test_kandev_pi_discovery_requires_available_pi(self):
+        ready, detail = _kandev_pi_discovery(
+            '{"agents":[{"name":"pi-acp","available":true,"matched_path":"/usr/bin/pi"}]}'
+        )
+        self.assertTrue(ready)
+        self.assertIn("/usr/bin/pi", detail)
+
+        for response in (
+            '{"agents":[{"name":"pi-acp","available":false}]}',
+            '{"agents":[]}',
+            'not json',
+        ):
+            with self.subTest(response=response):
+                self.assertFalse(_kandev_pi_discovery(response)[0])
 
 
 if __name__ == "__main__":
