@@ -79,6 +79,7 @@
         - {path: "/home/{{ agent_user }}/.config", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.config/bifrost", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.config/cliproxyapi", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.config/cliproxyapi/plugins", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.cache", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.cache/bifrost", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.npm", mode: "0700"}

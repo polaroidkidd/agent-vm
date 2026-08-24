@@ -158,6 +158,10 @@ After configuration, use:
 - CLIProxyAPI: <https://cliapiproxy.intra.dle.dev/management.html>
 
 CLIProxyAPI's UI and APIs share port 8317. Bifrost and CLIProxyAPI still require their own credentials after NetBird admits the connection.
+Plugin installation is enabled in the management UI, with artifacts stored under
+`~/.config/cliproxyapi/plugins`. CLIProxyAPI plugins are trusted native libraries
+loaded into the service process, so install only plugins whose source and release
+artifacts you trust.
 
 ## Credentials and tool configuration
 

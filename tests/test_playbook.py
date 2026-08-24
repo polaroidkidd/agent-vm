@@ -33,6 +33,20 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("ProtectHome=read-only", unit)
         self.assertIn("/home/{{ agent_user }}/.npm", unit.split("ReadWritePaths=", 1)[1])
 
+    def test_cliproxyapi_plugins_are_enabled_in_a_persistent_directory(self):
+        self.assertIn(
+            '- {path: "/home/{{ agent_user }}/.config/cliproxyapi/plugins", mode: "0700"}',
+            self.playbook,
+        )
+        config = (
+            Path(__file__).parents[1]
+            / "ansible"
+            / "templates"
+            / "cliproxyapi-config.yaml.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("plugins:\n  enabled: true", config)
+        self.assertIn('dir: "/home/{{ agent_user }}/.config/cliproxyapi/plugins"', config)
+
     def test_agent_package_changes_restart_kandev_for_rediscovery(self):
         task = self.playbook.split("- name: Install exact npm service releases", 1)[1].split(
             "\n\n", 1
