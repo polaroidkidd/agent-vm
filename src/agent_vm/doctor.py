@@ -74,11 +74,24 @@ def run_doctor(
     live_model_test: bool = False,
 ) -> list[Check]:
     checks: list[Check] = []
-    services = ("kandev", "bifrost", "cliproxyapi", "netbird")
+    services = ("docker", "kandev", "bifrost", "cliproxyapi", "netbird")
     for service in services:
         result = _remote(runner, config, state, address, f"systemctl is-active {service}")
         active = result.returncode == 0 and result.stdout.strip() == "active"
         checks.append(Check(f"service:{service}", "ready" if active else "failed", result.stdout.strip() or "inactive"))
+    docker = _remote(
+        runner,
+        config,
+        state,
+        address,
+        "docker version --format '{{.Server.Version}}'",
+    )
+    docker_version = docker.stdout.strip()
+    checks.append(Check(
+        "integration:docker",
+        "ready" if docker.returncode == 0 and bool(docker_version) else "failed",
+        f"Docker Engine {docker_version}" if docker_version else "agent cannot access the Docker daemon",
+    ))
     endpoints = {
         "kandev": f"http://127.0.0.1:{config.ports['kandev']}/health",
         "bifrost": f"http://127.0.0.1:{config.ports['bifrost']}/health",

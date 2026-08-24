@@ -1,6 +1,6 @@
 # Agent VM
 
-This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes. Docker is not used.
+This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides Docker Engine with Buildx and Docker Compose for agent workloads.
 
 Model requests follow one enforced path:
 
@@ -206,6 +206,13 @@ Then open `http://127.0.0.1:8080` or `http://127.0.0.1:8317/management.html`.
 
 `provision` never performs an application upgrade. `update` excludes alpha, beta, release-candidate, nightly, preview, development, and draft releases. CLIProxyAPI release artifacts and the Ubuntu image are SHA-256 verified.
 
+Every full `create`, `provision`, and `update` run installs Ubuntu's Docker
+Engine, Buildx, and Docker Compose packages, starts the Docker daemon, and adds
+`agent` to the `docker` group. Reconnect any shell that was already open when
+Docker was first provisioned so it picks up the new group membership. Docker
+group membership is effectively root-equivalent inside the VM because it grants
+access to the privileged Docker daemon.
+
 The destructive rebuild command is intentionally separate:
 
 ```bash
@@ -220,9 +227,10 @@ The `agent` console password comes from `guest.console_agent_password` in the ig
 
 - VM console: `virsh console agent-vm` (log in as `agent` with `guest.console_agent_password`; detach with `Ctrl+]`)
 - VM details: `virsh dominfo agent-vm` and `virsh domifaddr agent-vm --source agent`
-- Services: `sudo systemctl status kandev bifrost cliproxyapi netbird`
+- Services: `sudo systemctl status docker kandev bifrost cliproxyapi netbird`
 - Logs: `sudo journalctl -u <service> -n 200 --no-pager`
 - NetBird: `sudo netbird status` and `ip addr show wt0`
+- Docker: `docker version`, `docker compose version`, and `docker info`
 - Firewall: `sudo ufw status verbose`
 - CLIProxyAPI health: `curl http://127.0.0.1:8317/healthz`
 - Bifrost health: `curl http://127.0.0.1:8080/health`

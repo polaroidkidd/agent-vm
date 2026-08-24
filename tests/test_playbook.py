@@ -79,6 +79,26 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("update_password: always", task)
         self.assertIn("no_log: true", task)
 
+    def test_provision_installs_docker_for_agent_account(self):
+        install = self.playbook.split("- name: Install Docker Engine and Compose", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("- docker.io", install)
+        self.assertIn("- docker-buildx", install)
+        self.assertIn("- docker-compose-v2", install)
+        self.assertIn("state: present", install)
+
+        account = self.playbook.split("- name: Ensure agent account configuration", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("groups: sudo,docker", account)
+        self.assertIn("append: true", account)
+
+        service = self.playbook.split("- name: Enable Docker service", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("enabled: true", service)
+        self.assertIn("state: started", service)
+        self.assertIn("tags: [base, docker]", service)
+
 
 if __name__ == "__main__":
     unittest.main()
