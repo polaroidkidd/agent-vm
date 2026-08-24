@@ -25,6 +25,45 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn('name: "@mariozechner/pi-coding-agent"', task)
         self.assertIn("state: absent", task)
 
+    def test_node_is_provisioned_for_agent_with_pinned_nvm(self):
+        self.assertNotIn("Configure NodeSource repository", self.playbook)
+        removal = self.playbook.split("- name: Remove legacy system Node.js package", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("name: nodejs", removal)
+        self.assertIn("state: absent", removal)
+
+        nvm = self.playbook.split("- name: Install pinned NVM", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("repo: https://github.com/nvm-sh/nvm.git", nvm)
+        self.assertIn('version: "{{ services.nvm.version }}"', nvm)
+        self.assertIn('become_user: "{{ agent_user }}"', nvm)
+
+        node = self.playbook.split("- name: Install configured Node.js with NVM", 1)[1].split(
+            "\n    - name: Resolve active NVM Node.js binary", 1
+        )[0]
+        self.assertIn('nvm install "{{ node_major }}"', node)
+        self.assertIn('nvm version "{{ node_major }}" 2>/dev/null || true', node)
+        self.assertIn('become_user: "{{ agent_user }}"', node)
+        self.assertIn("perform_update", node)
+
+    def test_nvm_node_tools_and_agent_clis_are_available_without_shell_startup(self):
+        core = self.playbook.split("- name: Activate NVM-managed Node.js tools", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        for executable in ("node", "npm", "npx"):
+            self.assertIn(f"- {executable}", core)
+
+        agents = self.playbook.split("- name: Activate NVM-managed agent CLIs", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        for executable in ("kandev", "pi"):
+            self.assertIn(f"- {executable}", agents)
+
+        unit = (Path(__file__).parents[1] / "ansible" / "templates" / "kandev.service.j2").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("ExecStart=/usr/local/bin/kandev", unit)
+
     def test_kandev_can_write_npx_cache_for_acp_adapters(self):
         self.assertIn('- {path: "/home/{{ agent_user }}/.npm", mode: "0700"}', self.playbook)
         unit = (Path(__file__).parents[1] / "ansible" / "templates" / "kandev.service.j2").read_text(

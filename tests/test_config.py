@@ -28,7 +28,8 @@ VALID = {
     "NB_MANAGEMENT_URL": "https://netbird.example.com",
     "NB_SETUP_KEY": "test-setup-key",
     "services": {
-        "node_major": 22,
+        "nvm": {"version": "v0.40.3"},
+        "node_major": 24,
         "kandev": {"npm_package": "kandev"},
         "pi": {"npm_package": "@earendil-works/pi-coding-agent", "default_model": "model"},
         "bifrost": {"npm_package": "bifrost"},
@@ -142,6 +143,20 @@ class ConfigTests(unittest.TestCase):
         raw = copy.deepcopy(VALID)
         raw["vm"]["vcpus"] = True
         with self.assertRaisesRegex(AgentVMError, "int"):
+            self.config(raw).validate()
+
+    def test_nvm_version_must_be_an_exact_release_tag(self):
+        for version in ("0.40.3", "main", "v0.40", "v0.40.3; touch /tmp/bad"):
+            with self.subTest(version=version):
+                raw = copy.deepcopy(VALID)
+                raw["services"]["nvm"]["version"] = version
+                with self.assertRaisesRegex(AgentVMError, "services.nvm.version"):
+                    self.config(raw).validate()
+
+    def test_node_major_must_be_positive(self):
+        raw = copy.deepcopy(VALID)
+        raw["services"]["node_major"] = 0
+        with self.assertRaisesRegex(AgentVMError, "services.node_major"):
             self.config(raw).validate()
 
     def test_legacy_pi_package_is_rejected(self):

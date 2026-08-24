@@ -30,7 +30,9 @@ ports:
   cliproxyapi: 8317
 
 services:
-  node_major: 22
+  nvm:
+    version: v0.40.3
+  node_major: 24
   kandev:
     npm_package: kandev
   pi:

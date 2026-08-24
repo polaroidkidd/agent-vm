@@ -56,6 +56,11 @@ Run every command from the repository root.
    guest:
      console_agent_password: replace-with-an-agent-console-password
      console_root_password: replace-with-a-console-root-password
+
+   services:
+     nvm:
+       version: v0.40.3
+     node_major: 24
    ```
 
    The populated file contains `NB_SETUP_KEY` and separate agent/root console passwords, is ignored by Git, and must remain mode `0600`. The two console passwords must be distinct. All configuration values are validated before any VM operation. `NB_SETUP_KEY` may be one-off or reusable. A rebuild creates a new NetBird peer and therefore needs another usable key.
@@ -65,6 +70,11 @@ Run every command from the repository root.
    `/home/agent/.agents/skills/<name>`. Pi discovers that user-global location when
    Kandev starts a new agent session. Each immediate subdirectory of `skills/` must
    have a valid lowercase skill name and contain `SKILL.md`.
+
+   Node.js is installed for `agent` through the pinned NVM release. The configured
+   major selects the Node.js release line; NVM-managed `node`, `npm`, `npx`,
+   `kandev`, and `pi` are also exposed through stable `/usr/local/bin` links for
+   systemd services and non-interactive SSH commands.
 
 2. Validate the host, then create and provision the VM:
 
@@ -209,6 +219,10 @@ Then open `http://127.0.0.1:8080` or `http://127.0.0.1:8317/management.html`.
 ```
 
 `provision` never performs an application upgrade. `update` excludes alpha, beta, release-candidate, nightly, preview, development, and draft releases. CLIProxyAPI release artifacts and the Ubuntu image are SHA-256 verified.
+For Node.js, `provision` retains the installed release when it already matches
+`services.node_major`, while `update` installs the newest release in that major.
+Changing `services.nvm.version` or `services.node_major` and running `provision`
+applies the explicitly configured NVM or Node.js line.
 
 Every full `create`, `provision`, and `update` run installs Ubuntu's Docker
 Engine, Buildx, and Docker Compose packages, starts the Docker daemon, and adds

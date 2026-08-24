@@ -12,6 +12,7 @@ HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)(?!-)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*(
 VM_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$", re.I)
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+NVM_VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
 def _load_yaml(path: Path) -> dict:
@@ -112,7 +113,13 @@ class Config:
             "config.NB_MANAGEMENT_URL",
         )
         services = _required(self.raw, "services", dict, "config")
-        _required(services, "node_major", int, "services")
+        nvm = _required(services, "nvm", dict, "services")
+        nvm_version = _required(nvm, "version", str, "services.nvm")
+        if not NVM_VERSION_RE.fullmatch(nvm_version):
+            raise AgentVMError("services.nvm.version must be an exact release tag such as v0.40.3")
+        node_major = _required(services, "node_major", int, "services")
+        if node_major <= 0:
+            raise AgentVMError("services.node_major must be greater than zero")
         for name in ("kandev", "pi", "bifrost"):
             service = _required(services, name, dict, "services")
             _required(service, "npm_package", str, f"services.{name}")
