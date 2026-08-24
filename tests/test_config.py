@@ -150,6 +150,39 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentVMError, "Kandev Pi ACP compatibility"):
             self.config(raw).validate()
 
+    def test_repository_pi_skills_are_discovered_for_ansible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "skills" / "ggs"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text(
+                "---\nname: ggs\ndescription: Git workflows\n---\n",
+                encoding="utf-8",
+            )
+            config = Config(path=root / "config.yaml", root=root, raw=copy.deepcopy(VALID))
+
+            config.validate()
+
+            self.assertEqual(config.pi_skills, [{"name": "ggs", "source": str(source.absolute())}])
+
+    def test_repository_pi_skill_must_contain_skill_md(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "skills" / "ggs").mkdir(parents=True)
+            config = Config(path=root / "config.yaml", root=root, raw=copy.deepcopy(VALID))
+            with self.assertRaisesRegex(AgentVMError, "skill 'ggs' must contain SKILL.md"):
+                config.validate()
+
+    def test_repository_pi_skill_name_is_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "skills" / "Bad Skill"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text("skill", encoding="utf-8")
+            config = Config(path=root / "config.yaml", root=root, raw=copy.deepcopy(VALID))
+            with self.assertRaisesRegex(AgentVMError, "lowercase letters"):
+                config.validate()
+
 
 if __name__ == "__main__":
     unittest.main()

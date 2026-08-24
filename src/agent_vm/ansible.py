@@ -59,6 +59,7 @@ class Ansible:
             "node_major": self.config.services["node_major"],
             "ports": self.config.ports,
             "services": self.config.services,
+            "pi_skills": self.config.pi_skills,
             "versions": versions,
             "generated_secrets": secrets,
             "github_public_key": Path(str(self.state.directory / "github_ed25519") + ".pub").read_text(encoding="utf-8").strip(),

@@ -60,6 +60,12 @@ Run every command from the repository root.
 
    The populated file contains `NB_SETUP_KEY` and separate agent/root console passwords, is ignored by Git, and must remain mode `0600`. The two console passwords must be distinct. All configuration values are validated before any VM operation. `NB_SETUP_KEY` may be one-off or reusable. A rebuild creates a new NetBird peer and therefore needs another usable key.
 
+   Repository-owned Agent Skills live under `skills/<name>/`. `create`, `provision`,
+   and `update` automatically copy every skill there to
+   `/home/agent/.agents/skills/<name>`. Pi discovers that user-global location when
+   Kandev starts a new agent session. Each immediate subdirectory of `skills/` must
+   have a valid lowercase skill name and contain `SKILL.md`.
+
 2. Validate the host, then create and provision the VM:
 
    ```bash

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Global Git Skills"
+  short_description: "Git, changeset, and review workflows"
+  default_prompt: "Use $ggs to prepare atomic commits, handle the repository's changeset convention, and publish a ready change request through the detected hosting provider."

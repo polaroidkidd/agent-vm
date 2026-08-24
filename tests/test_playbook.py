@@ -54,6 +54,17 @@ class PlaybookTests(unittest.TestCase):
                 task = self.playbook.split(f"- name: {name}", 1)[1].split("\n\n", 1)[0]
                 self.assertIn("force: false", task)
 
+    def test_global_pi_skills_are_copied_for_shared_agent_account(self):
+        self.assertIn(
+            '- {path: "/home/{{ agent_user }}/.agents/skills", mode: "0700"}',
+            self.playbook,
+        )
+        task = self.playbook.split("- name: Install global Pi agent skills", 1)[1].split("\n\n", 1)[0]
+        self.assertIn('src: "{{ item.source }}/"', task)
+        self.assertIn('dest: "/home/{{ agent_user }}/.agents/skills/{{ item.name }}/"', task)
+        self.assertIn("loop: \"{{ pi_skills }}\"", task)
+        self.assertIn("tags: [services, pi, skills]", task)
+
     def test_agent_account_has_an_unlocked_console_password(self):
         task = self.playbook.split("- name: Ensure agent account configuration", 1)[1].split("\n\n", 1)[0]
         self.assertIn('password: "{{ agent_console_password_hash }}"', task)

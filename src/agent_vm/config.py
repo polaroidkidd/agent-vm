@@ -11,6 +11,7 @@ from .errors import AgentVMError
 HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)(?!-)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*(?<!-)$")
 VM_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$", re.I)
+SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def _load_yaml(path: Path) -> dict:
@@ -121,6 +122,7 @@ class Config:
                 "for Kandev Pi ACP compatibility"
             )
         _required(services["pi"], "default_model", str, "services.pi")
+        self.pi_skills
         cliproxy = _required(services, "cliproxyapi", dict, "services")
         _required(cliproxy, "github_repository", str, "services.cliproxyapi")
         pattern = _required(cliproxy, "asset_pattern", str, "services.cliproxyapi")
@@ -173,6 +175,28 @@ class Config:
     @property
     def services(self) -> dict:
         return self.raw["services"]
+
+    @property
+    def pi_skills(self) -> list[dict[str, str]]:
+        skills_root = self.root / "skills"
+        if not skills_root.exists():
+            return []
+        if not skills_root.is_dir():
+            raise AgentVMError(f"Repository skills path is not a directory: {skills_root}")
+        result: list[dict[str, str]] = []
+        for source in sorted(skills_root.iterdir()):
+            if not source.is_dir():
+                continue
+            name = source.name
+            if not SKILL_NAME_RE.fullmatch(name):
+                raise AgentVMError(
+                    f"Repository skill directory {name!r} must contain lowercase letters, "
+                    "numbers, and single hyphens only"
+                )
+            if not (source / "SKILL.md").is_file():
+                raise AgentVMError(f"Repository skill {name!r} must contain SKILL.md")
+            result.append({"name": name, "source": str(source.absolute())})
+        return result
 
     @property
     def netbird(self) -> dict:

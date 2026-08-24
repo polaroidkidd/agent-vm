@@ -66,8 +66,22 @@
         - {path: "/home/{{ agent_user }}/.cache/bifrost", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.npm", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.kandev", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.agents/skills", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.pi/agent", mode: "0700"}
       tags: [base, shell, services]
+
+    - name: Install global Pi agent skills
+      ansible.builtin.copy:
+        src: "{{ item.source }}/"
+        dest: "/home/{{ agent_user }}/.agents/skills/{{ item.name }}/"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: preserve
+        directory_mode: "0700"
+      loop: "{{ pi_skills }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags: [services, pi, skills]
 
     - name: Install GitHub SSH private key
       ansible.builtin.copy:
