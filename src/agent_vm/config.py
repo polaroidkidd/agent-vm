@@ -112,6 +112,9 @@ class Config:
             netbird_values["NB_MANAGEMENT_URL"],
             "config.NB_MANAGEMENT_URL",
         )
+        stripe_api_key = _required(self.raw, "STRIPE_API_KEY", str, "config")
+        if any(character in stripe_api_key for character in "\r\n\0"):
+            raise AgentVMError("config.STRIPE_API_KEY must be a single-line string")
         services = _required(self.raw, "services", dict, "config")
         nvm = _required(services, "nvm", dict, "services")
         nvm_version = _required(nvm, "version", str, "services.nvm")
@@ -212,3 +215,7 @@ class Config:
             "management_url": self.raw["NB_MANAGEMENT_URL"].strip().rstrip("/"),
             "setup_key": self.raw["NB_SETUP_KEY"].strip(),
         }
+
+    @property
+    def stripe_api_key(self) -> str:
+        return self.raw["STRIPE_API_KEY"].strip()

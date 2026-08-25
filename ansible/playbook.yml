@@ -457,6 +457,17 @@
       notify: Restart Kandev
       tags: [services, kandev]
 
+    - name: Configure agent workload environment
+      ansible.builtin.template:
+        src: agent-vm.env.j2
+        dest: "/home/{{ agent_user }}/.config/agent-vm.env"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0600"
+      no_log: true
+      notify: Restart Kandev
+      tags: [services, kandev, shell]
+
     - name: Configure Pi provider through Bifrost
       ansible.builtin.template:
         src: pi-models.json.j2

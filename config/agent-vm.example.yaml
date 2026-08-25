@@ -4,6 +4,7 @@ schema_version: 1
 NB_HOSTNAME: agent-vm
 NB_MANAGEMENT_URL: 
 NB_SETUP_KEY: replace-with-the-setup-key
+STRIPE_API_KEY: replace-with-a-stripe-api-key
 
 vm:
   name: agent-vm

@@ -62,6 +62,7 @@ class Ansible:
             "pi_skills": self.config.pi_skills,
             "versions": versions,
             "generated_secrets": secrets,
+            "stripe_api_key": self.config.stripe_api_key,
             "github_public_key": Path(str(self.state.directory / "github_ed25519") + ".pub").read_text(encoding="utf-8").strip(),
             "github_private_key": (self.state.directory / "github_ed25519").read_text(encoding="utf-8"),
             "netbird": netbird,

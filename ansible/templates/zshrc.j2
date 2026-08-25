@@ -17,6 +17,11 @@ export VISUAL="$EDITOR"
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 export WORKSPACES={{ workspace_dir | quote }}
 
+if [[ -r "$HOME/.config/agent-vm.env" ]]; then
+  export STRIPE_API_KEY
+  source "$HOME/.config/agent-vm.env"
+fi
+
 [[ -s "$HOME/.nvm/nvm.sh" ]] && source "$HOME/.nvm/nvm.sh"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
 

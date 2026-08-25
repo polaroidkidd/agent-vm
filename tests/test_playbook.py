@@ -72,6 +72,31 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("ProtectHome=read-only", unit)
         self.assertIn("/home/{{ agent_user }}/.npm", unit.split("ReadWritePaths=", 1)[1])
 
+    def test_stripe_api_key_is_provisioned_for_workloads_and_shells(self):
+        task = self.playbook.split("- name: Configure agent workload environment", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("src: agent-vm.env.j2", task)
+        self.assertIn('mode: "0600"', task)
+        self.assertIn("no_log: true", task)
+        self.assertIn("notify: Restart Kandev", task)
+
+        environment = (
+            Path(__file__).parents[1] / "ansible" / "templates" / "agent-vm.env.j2"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(environment, "STRIPE_API_KEY={{ stripe_api_key | to_json }}\n")
+
+        unit = (Path(__file__).parents[1] / "ansible" / "templates" / "kandev.service.j2").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("EnvironmentFile=/home/{{ agent_user }}/.config/agent-vm.env", unit)
+
+        zshrc = (Path(__file__).parents[1] / "ansible" / "templates" / "zshrc.j2").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("export STRIPE_API_KEY", zshrc)
+        self.assertIn('source "$HOME/.config/agent-vm.env"', zshrc)
+
     def test_cliproxyapi_plugins_are_enabled_in_a_persistent_directory(self):
         self.assertIn(
             '- {path: "/home/{{ agent_user }}/.config/cliproxyapi/plugins", mode: "0700"}',

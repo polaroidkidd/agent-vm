@@ -27,6 +27,7 @@ VALID = {
     "NB_HOSTNAME": "agent-vm",
     "NB_MANAGEMENT_URL": "https://netbird.example.com",
     "NB_SETUP_KEY": "test-setup-key",
+    "STRIPE_API_KEY": "sk_test_example",
     "services": {
         "nvm": {"version": "v0.40.3"},
         "node_major": 24,
@@ -111,6 +112,18 @@ class ConfigTests(unittest.TestCase):
         raw = copy.deepcopy(VALID)
         raw["NB_MANAGEMENT_URL"] = "netbird.example.com"
         with self.assertRaisesRegex(AgentVMError, "http"):
+            self.config(raw).validate()
+
+    def test_stripe_api_key_is_required(self):
+        raw = copy.deepcopy(VALID)
+        del raw["STRIPE_API_KEY"]
+        with self.assertRaisesRegex(AgentVMError, "STRIPE_API_KEY"):
+            self.config(raw).validate()
+
+    def test_stripe_api_key_must_be_one_line(self):
+        raw = copy.deepcopy(VALID)
+        raw["STRIPE_API_KEY"] = "first\nsecond"
+        with self.assertRaisesRegex(AgentVMError, "STRIPE_API_KEY.*single-line"):
             self.config(raw).validate()
 
     def test_config_file_must_be_private(self):

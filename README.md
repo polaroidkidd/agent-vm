@@ -47,6 +47,7 @@ Run every command from the repository root.
    NB_HOSTNAME: agent-vm
    NB_MANAGEMENT_URL: https://netbird.example.com
    NB_SETUP_KEY: replace-with-the-setup-key
+   STRIPE_API_KEY: replace-with-a-stripe-api-key
 
    vm:
      vcpus: 4
@@ -63,7 +64,7 @@ Run every command from the repository root.
      node_major: 24
    ```
 
-   The populated file contains `NB_SETUP_KEY` and separate agent/root console passwords, is ignored by Git, and must remain mode `0600`. The two console passwords must be distinct. All configuration values are validated before any VM operation. `NB_SETUP_KEY` may be one-off or reusable. A rebuild creates a new NetBird peer and therefore needs another usable key.
+   The populated file contains `NB_SETUP_KEY`, `STRIPE_API_KEY`, and separate agent/root console passwords, is ignored by Git, and must remain mode `0600`. The two console passwords must be distinct. All configuration values are validated before any VM operation. `NB_SETUP_KEY` may be one-off or reusable. A rebuild creates a new NetBird peer and therefore needs another usable key.
 
    Repository-owned Agent Skills live under `skills/<name>/`. `create`, `provision`,
    and `update` automatically copy every skill there to
@@ -197,6 +198,11 @@ managed Pi package restart Kandev so its local-agent discovery is refreshed. In
 Kandev, open **Settings → Agents**, rescan the local host, select Pi, and review
 the generated local profile before starting work. Kandev runs Pi as the same
 `agent` account and uses local workspaces only.
+
+`STRIPE_API_KEY` comes from the ignored, mode-`0600` VM configuration. Provisioning
+writes it to a mode-`0600` agent environment file used by Kandev and direct Zsh
+sessions, so Pi and workspace processes inherit it without storing the value in
+tracked files.
 
 The guest's Zsh configuration is a headless, portable adaptation of `polaroidkidd/regolith-dot-files`. It installs every real custom plugin found in the requested workstation inventory (the Oh My Zsh `example` placeholder is excluded), enables the portable active subset, and omits Kitty and workstation-only graphical helpers.
 
