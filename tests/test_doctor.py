@@ -39,6 +39,12 @@ class DoctorRunner:
             return subprocess.CompletedProcess(args, 0, '{"data":[{"id":"gpt-test"}]}', "")
         if command == "pi --version 2>&1":
             return subprocess.CompletedProcess(args, 0, "0.84.2\n", "")
+        if command == "pip --version 2>&1":
+            return subprocess.CompletedProcess(args, 0, "pip 24.0 from /usr/lib/python3/dist-packages/pip (python 3.12)\n", "")
+        if command == "pipx --version 2>&1":
+            return subprocess.CompletedProcess(args, 0, "1.4.3\n", "")
+        if command == "uv --version 2>&1":
+            return subprocess.CompletedProcess(args, 0, "uv 0.12.7\n", "")
         return subprocess.CompletedProcess(args, 0, "ok\n", "")
 
 
@@ -71,6 +77,21 @@ class DoctorTests(unittest.TestCase):
 
         self.assertEqual("failed", docker.status)
         self.assertEqual("agent cannot access the Docker daemon", docker.detail)
+
+    def test_doctor_verifies_python_tooling(self):
+        runner = DoctorRunner()
+        config = SimpleNamespace(
+            guest={"user": "agent"},
+            ports={"kandev": 38429, "bifrost": 8080, "cliproxyapi": 8317},
+        )
+        state = SimpleNamespace(directory=Path("/tmp/agent-vm-doctor-test"))
+
+        checks = run_doctor(runner, config, state, "192.0.2.1")
+        by_name = {check.name: check for check in checks}
+
+        self.assertIn("pip 24.0", by_name["tool:pip"].detail)
+        self.assertEqual("ready", by_name["tool:pipx"].status)
+        self.assertEqual("uv 0.12.7", by_name["tool:uv"].detail)
 
     def test_model_catalog_must_be_nonempty(self):
         self.assertTrue(_has_models('{"data": [{"id": "gpt-test"}]}'))

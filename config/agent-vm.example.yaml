@@ -33,6 +33,8 @@ ports:
 services:
   nvm:
     version: v0.40.3
+  uv:
+    version: 0.12.7
   node_major: 24
   kandev:
     npm_package: kandev

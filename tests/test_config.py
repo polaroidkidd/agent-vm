@@ -30,6 +30,7 @@ VALID = {
     "STRIPE_API_KEY": "sk_test_example",
     "services": {
         "nvm": {"version": "v0.40.3"},
+        "uv": {"version": "0.12.7"},
         "node_major": 24,
         "kandev": {"npm_package": "kandev"},
         "pi": {"npm_package": "@earendil-works/pi-coding-agent", "default_model": "model"},
@@ -164,6 +165,14 @@ class ConfigTests(unittest.TestCase):
                 raw = copy.deepcopy(VALID)
                 raw["services"]["nvm"]["version"] = version
                 with self.assertRaisesRegex(AgentVMError, "services.nvm.version"):
+                    self.config(raw).validate()
+
+    def test_uv_version_must_be_an_exact_release(self):
+        for version in ("", "v0.12.7", "0.12", "latest", "0.12.7rc1"):
+            with self.subTest(version=version):
+                raw = copy.deepcopy(VALID)
+                raw["services"]["uv"]["version"] = version
+                with self.assertRaisesRegex(AgentVMError, "services.uv.version"):
                     self.config(raw).validate()
 
     def test_node_major_must_be_positive(self):

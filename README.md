@@ -61,6 +61,8 @@ Run every command from the repository root.
    services:
      nvm:
        version: v0.40.3
+     uv:
+       version: 0.12.7
      node_major: 24
    ```
 
@@ -76,6 +78,11 @@ Run every command from the repository root.
    major selects the Node.js release line; NVM-managed `node`, `npm`, `npx`,
    `kandev`, and `pi` are also exposed through stable `/usr/local/bin` links for
    systemd services and non-interactive SSH commands.
+
+   Python 3, `pip`, and `pipx` come from Ubuntu packages. The configured `uv`
+   release is installed for `agent` through `pipx`; both `uv` and `uvx` are
+   exposed through stable `/usr/local/bin` links for workloads and interactive
+   shells.
 
 2. Validate the host, then create and provision the VM:
 
@@ -229,6 +236,8 @@ For Node.js, `provision` retains the installed release when it already matches
 `services.node_major`, while `update` installs the newest release in that major.
 Changing `services.nvm.version` or `services.node_major` and running `provision`
 applies the explicitly configured NVM or Node.js line.
+Changing `services.uv.version` and running `provision` similarly installs that
+exact `uv` release.
 
 Every full `create`, `provision`, and `update` run installs Ubuntu's Docker
 Engine, Buildx, and Docker Compose packages, starts the Docker daemon, and adds
@@ -255,6 +264,7 @@ The `agent` console password comes from `guest.console_agent_password` in the ig
 - Logs: `sudo journalctl -u <service> -n 200 --no-pager`
 - NetBird: `sudo netbird status` and `ip addr show wt0`
 - Docker: `docker version`, `docker compose version`, and `docker info`
+- Python tooling: `pip --version`, `pipx --version`, and `uv --version`
 - Firewall: `sudo ufw status verbose`
 - CLIProxyAPI health: `curl http://127.0.0.1:8317/healthz`
 - Bifrost health: `curl http://127.0.0.1:8080/health`

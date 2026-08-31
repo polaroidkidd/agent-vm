@@ -13,6 +13,7 @@ VM_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$", re.I)
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 NVM_VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+UV_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def _load_yaml(path: Path) -> dict:
@@ -120,6 +121,10 @@ class Config:
         nvm_version = _required(nvm, "version", str, "services.nvm")
         if not NVM_VERSION_RE.fullmatch(nvm_version):
             raise AgentVMError("services.nvm.version must be an exact release tag such as v0.40.3")
+        uv = _required(services, "uv", dict, "services")
+        uv_version = _required(uv, "version", str, "services.uv")
+        if not UV_VERSION_RE.fullmatch(uv_version):
+            raise AgentVMError("services.uv.version must be an exact release such as 0.12.7")
         node_major = _required(services, "node_major", int, "services")
         if node_major <= 0:
             raise AgentVMError("services.node_major must be greater than zero")

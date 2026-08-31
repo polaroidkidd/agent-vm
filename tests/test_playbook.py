@@ -177,6 +177,27 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("state: started", service)
         self.assertIn("tags: [base, docker]", service)
 
+    def test_python_tooling_is_provisioned_for_agent_and_workloads(self):
+        install = self.playbook.split("- name: Install Python package tooling", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("- python3-pip", install)
+        self.assertIn("- pipx", install)
+        self.assertIn("state: present", install)
+
+        uv = self.playbook.split("- name: Install configured uv with pipx", 1)[1].split(
+            "\n    - name: Activate pipx-managed uv tools", 1
+        )[0]
+        self.assertIn('uv=={{ services.uv.version }}', uv)
+        self.assertIn('become_user: "{{ agent_user }}"', uv)
+
+        activation = self.playbook.split("- name: Activate pipx-managed uv tools", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        for executable in ("uv", "uvx"):
+            self.assertIn(f"- {executable}", activation)
+        self.assertIn('dest: "/usr/local/bin/{{ item }}"', activation)
+
 
 if __name__ == "__main__":
     unittest.main()
