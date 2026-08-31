@@ -145,6 +145,31 @@ class Config:
             re.compile(pattern)
         except re.error as exc:
             raise AgentVMError(f"services.cliproxyapi.asset_pattern is invalid: {exc}") from exc
+        pr_agent = services.get("pr_agent")
+        if pr_agent is not None:
+            if not isinstance(pr_agent, dict):
+                raise AgentVMError("services.pr_agent must be a mapping")
+            enabled = pr_agent.get("enabled")
+            if not isinstance(enabled, bool):
+                raise AgentVMError("services.pr_agent.enabled must be a boolean")
+            if enabled:
+                port = _required(ports, "pr_agent", int, "ports")
+                if not 1 <= port <= 65535 or port in seen:
+                    raise AgentVMError("ports.pr_agent must be unique and between 1 and 65535")
+                _required(pr_agent, "pypi_package", str, "services.pr_agent")
+                _required(pr_agent, "model", str, "services.pr_agent")
+                _required(pr_agent, "fallback_model", str, "services.pr_agent")
+                workers = _required(pr_agent, "workers", int, "services.pr_agent")
+                if workers <= 0:
+                    raise AgentVMError("services.pr_agent.workers must be greater than zero")
+                app_id = _required(self.raw, "PR_AGENT_GITHUB_APP_ID", int, "config")
+                if app_id <= 0:
+                    raise AgentVMError("config.PR_AGENT_GITHUB_APP_ID must be greater than zero")
+                private_key = _required(self.raw, "PR_AGENT_GITHUB_PRIVATE_KEY", str, "config")
+                if any(character in private_key for character in "\r\0"):
+                    raise AgentVMError("config.PR_AGENT_GITHUB_PRIVATE_KEY must contain a PEM key")
+                if "-----BEGIN " not in private_key or "PRIVATE KEY-----" not in private_key:
+                    raise AgentVMError("config.PR_AGENT_GITHUB_PRIVATE_KEY must contain a PEM key")
         local = self.raw.get("local", {})
         if not isinstance(local, dict):
             raise AgentVMError("config.local must be a mapping")
@@ -190,6 +215,17 @@ class Config:
     @property
     def services(self) -> dict:
         return self.raw["services"]
+
+    @property
+    def pr_agent(self) -> dict | None:
+        service = self.services.get("pr_agent")
+        if not service or not service.get("enabled", False):
+            return None
+        return {
+            **service,
+            "github_app_id": self.raw["PR_AGENT_GITHUB_APP_ID"],
+            "github_private_key": self.raw["PR_AGENT_GITHUB_PRIVATE_KEY"],
+        }
 
     @property
     def pi_skills(self) -> list[dict[str, str]]:

@@ -32,6 +32,21 @@ def _has_models(output: str) -> bool:
     return isinstance(data, dict) and isinstance(data.get("data"), list) and bool(data["data"])
 
 
+def _has_model(output: str, expected: str) -> bool:
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return False
+    entries = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return False
+    model_ids = {
+        entry.get("id") for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+    return expected in model_ids or any(model_id.endswith(f"/{expected}") for model_id in model_ids)
+
+
 def _kandev_pi_capabilities(output: str) -> tuple[bool, str]:
     try:
         data = json.loads(output)
@@ -74,7 +89,10 @@ def run_doctor(
     live_model_test: bool = False,
 ) -> list[Check]:
     checks: list[Check] = []
-    services = ("docker", "kandev", "bifrost", "cliproxyapi", "netbird")
+    pr_agent = getattr(config, "pr_agent", None)
+    services = ["docker", "kandev", "bifrost", "cliproxyapi", "netbird"]
+    if pr_agent:
+        services.append("pr-agent")
     for service in services:
         result = _remote(runner, config, state, address, f"systemctl is-active {service}")
         active = result.returncode == 0 and result.stdout.strip() == "active"
@@ -105,6 +123,8 @@ def run_doctor(
         "bifrost": f"http://127.0.0.1:{config.ports['bifrost']}/health",
         "cliproxyapi": f"http://127.0.0.1:{config.ports['cliproxyapi']}/healthz",
     }
+    if pr_agent:
+        endpoints["pr-agent"] = f"http://127.0.0.1:{config.ports['pr_agent']}/"
     for name, url in endpoints.items():
         result = _remote(
             runner,
@@ -154,6 +174,29 @@ def run_doctor(
         "ready" if bifrost_ready else "pending",
         "virtual key reaches CLIProxyAPI models" if bifrost_ready else "complete OAuth, then run configure-bifrost",
     ))
+    if pr_agent:
+        pr_agent_model_ready = bifrost_ready and _has_model(bifrost_models.stdout, pr_agent["model"])
+        checks.append(Check(
+            "integration:pr-agent-bifrost",
+            "ready" if pr_agent_model_ready else "pending",
+            "configured review model is available through Bifrost"
+            if pr_agent_model_ready else f"Bifrost does not advertise {pr_agent['model']}",
+        ))
+        github_app = _remote(
+            runner,
+            config,
+            state,
+            address,
+            "/opt/pr-agent/current/venv/bin/python -c "
+            "'from github import GithubIntegration; from pr_agent.config_loader import get_settings; "
+            "s=get_settings(); GithubIntegration(s.github.app_id, s.github.private_key).get_app()'",
+        )
+        checks.append(Check(
+            "integration:pr-agent-github",
+            "ready" if github_app.returncode == 0 else "pending",
+            "GitHub accepted the configured App identity"
+            if github_app.returncode == 0 else "register or correct the GitHub App credentials",
+        ))
     pi_version = _remote(runner, config, state, address, "pi --version 2>&1")
     checks.append(Check(
         "integration:pi",

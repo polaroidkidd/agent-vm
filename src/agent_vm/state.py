@@ -72,6 +72,8 @@ class State:
             "bifrost_admin_password": secrets.token_urlsafe(32),
             "bifrost_encryption_key": secrets.token_urlsafe(48),
             "bifrost_virtual_key": "sk-bf-" + secrets.token_urlsafe(32),
+            "pr_agent_bifrost_virtual_key": "sk-bf-pr-" + secrets.token_urlsafe(32),
+            "pr_agent_webhook_secret": secrets.token_hex(32),
         }
         for key, value in defaults.items():
             values.setdefault(key, value)

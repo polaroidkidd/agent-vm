@@ -1,0 +1,25 @@
+[Unit]
+Description=PR-Agent GitHub App
+After=network-online.target bifrost.service
+Wants=network-online.target
+Requires=bifrost.service
+
+[Service]
+Type=simple
+User={{ agent_user }}
+Group={{ agent_user }}
+WorkingDirectory=/home/{{ agent_user }}/.config/pr-agent
+Environment=HOME=/home/{{ agent_user }}
+EnvironmentFile=/home/{{ agent_user }}/.config/pr-agent/pr-agent.env
+ExecStart=/opt/pr-agent/current/venv/bin/gunicorn --config python:pr_agent.servers.gunicorn_config --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:{{ ports.pr_agent }} pr_agent.servers.github_app:app
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/{{ agent_user }}/.cache/pr-agent
+
+[Install]
+WantedBy=multi-user.target

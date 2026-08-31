@@ -45,6 +45,35 @@ def npm_latest(package: str) -> Release:
     return Release(version=version, source=f"npm:{package}")
 
 
+def pypi_latest(package: str) -> Release:
+    data = _json(
+        f"https://pypi.org/pypi/{quote(package, safe='')}/json",
+        accept="application/json",
+    )
+    info = data.get("info") if isinstance(data, dict) else None
+    version = str(info.get("version", "")) if isinstance(info, dict) else ""
+    if not version or PRERELEASE_RE.search(version):
+        raise AgentVMError(f"PyPI latest for {package} is missing or a development version: {version!r}")
+    files = data.get("releases", {}).get(version, [])
+    matches = [
+        item for item in files
+        if isinstance(item, dict) and str(item.get("filename", "")).endswith("-py3-none-any.whl")
+    ]
+    if len(matches) != 1:
+        raise AgentVMError(f"Expected one universal Python wheel for {package} {version}; found {len(matches)}")
+    wheel = matches[0]
+    sha256 = str((wheel.get("digests") or {}).get("sha256") or "")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
+        raise AgentVMError(f"PyPI wheel {wheel.get('filename')} has no usable SHA-256 checksum")
+    return Release(
+        version=version,
+        source=f"pypi:{package}",
+        url=str(wheel["url"]),
+        sha256=sha256.lower(),
+        asset=str(wheel["filename"]),
+    )
+
+
 def github_latest(repository: str, asset_pattern: str) -> Release:
     data = _json(
         f"https://api.github.com/repos/{repository}/releases/latest",
@@ -96,4 +125,6 @@ def resolve_all(config: Config) -> dict:
             services["cliproxyapi"]["asset_pattern"],
         ).to_dict(),
     }
+    if config.pr_agent:
+        values["pr_agent"] = pypi_latest(config.pr_agent["pypi_package"]).to_dict()
     return values

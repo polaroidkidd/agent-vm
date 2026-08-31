@@ -61,6 +61,22 @@
             "weight": 1
           }
         ]
+{% if pr_agent is not none %}
+      },
+      {
+        "id": "vk-pr-agent",
+        "name": "pr-agent",
+        "value": "env.PR_AGENT_BIFROST_VIRTUAL_KEY",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "cliproxy",
+            "allowed_models": [{{ pr_agent.model | to_json }}, {{ pr_agent.fallback_model | to_json }}],
+            "key_ids": ["*"],
+            "weight": 1
+          }
+        ]
+{% endif %}
       }
     ]
   },

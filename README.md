@@ -1,11 +1,11 @@
 # Agent VM
 
-This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides Docker Engine with Buildx and Docker Compose for agent workloads.
+This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, PR-Agent, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides Docker Engine with Buildx and Docker Compose for agent workloads.
 
 Model requests follow one enforced path:
 
 ```text
-Kandev / Pi / OpenAI-compatible tools
+Kandev / Pi / PR-Agent / OpenAI-compatible tools
                   |
                   v
           Bifrost virtual key
@@ -48,6 +48,11 @@ Run every command from the repository root.
    NB_MANAGEMENT_URL: https://netbird.example.com
    NB_SETUP_KEY: replace-with-the-setup-key
    STRIPE_API_KEY: replace-with-a-stripe-api-key
+   PR_AGENT_GITHUB_APP_ID: 123456
+   PR_AGENT_GITHUB_PRIVATE_KEY: |-
+     -----BEGIN RSA PRIVATE KEY-----
+     replace-with-the-github-app-private-key
+     -----END RSA PRIVATE KEY-----
 
    vm:
      vcpus: 4
@@ -64,9 +69,21 @@ Run every command from the repository root.
      uv:
        version: 0.12.7
      node_major: 24
+     pr_agent:
+       enabled: true
+       pypi_package: pr-agent
+       model: cliproxy/codex-auto-review
+       fallback_model: cliproxy/gpt-5.6-sol
+       workers: 2
    ```
 
-   The populated file contains `NB_SETUP_KEY`, `STRIPE_API_KEY`, and separate agent/root console passwords, is ignored by Git, and must remain mode `0600`. The two console passwords must be distinct. All configuration values are validated before any VM operation. `NB_SETUP_KEY` may be one-off or reusable. A rebuild creates a new NetBird peer and therefore needs another usable key.
+   The populated file contains `NB_SETUP_KEY`, `STRIPE_API_KEY`, the GitHub App
+   private key, and separate agent/root console passwords, is ignored by Git,
+   and must remain mode `0600`. The two console passwords must be distinct. All
+   configuration values are validated before any VM operation. `NB_SETUP_KEY`
+   may be one-off or reusable. A rebuild creates a new NetBird peer and therefore
+   needs another usable key. To omit PR-Agent, set `services.pr_agent.enabled` to
+   `false`; its port and GitHub App values are then not required.
 
    Repository-owned Agent Skills live under `skills/<name>/`. `create`, `provision`,
    and `update` automatically copy every skill there to
@@ -126,9 +143,21 @@ Run every command from the repository root.
    Bifrost, into Pi and refreshes Kandev's model selector. Run it again after
    adding, removing, or reauthenticating a CLIProxyAPI Auth File.
 
-6. Create the three NetBird Reverse Proxy services described below.
+6. Provision the PR-Agent GitHub App service:
 
-7. Check the complete installation:
+   ```bash
+   ./agent-vm configure-pr-agent
+   ```
+
+   PR-Agent uses a dedicated Bifrost virtual key that can access only
+   `services.pr_agent.model` and `services.pr_agent.fallback_model`. Host-level
+   settings restrict automatic behavior to `/review`, disable push-triggered
+   runs and draft feedback, and enable PR-Agent restricted mode.
+
+7. Create the three private NetBird Reverse Proxy services and the separate
+   public PR-Agent webhook route described below.
+
+8. Check the complete installation:
 
    ```bash
    ./agent-vm doctor
@@ -181,6 +210,38 @@ Plugin installation is enabled in the management UI, with artifacts stored under
 loaded into the service process, so install only plugins whose source and release
 artifacts you trust.
 
+## PR-Agent GitHub App and webhook
+
+Create a dedicated GitHub App following the
+[official self-hosted PR-Agent guide](https://docs.pr-agent.ai/installation/github/#run-as-a-github-app).
+Grant only these repository permissions:
+
+- Pull requests: read and write
+- Issues: read and write
+- Metadata: read-only
+- Contents: read-only
+
+Subscribe only to `Pull request`. Do not subscribe to `Issue comment`,
+`Pull request review comment`, or `Push`: this review-only deployment does not
+accept interactive `/improve` commands and deliberately disables automatic
+push-triggered reviews. Generate an App private key, put its ID and PEM value in
+the ignored YAML configuration, install the App only on the repositories it may
+review, and rerun `./agent-vm configure-pr-agent`.
+
+GitHub cannot reach a NetBird-only hostname. Publish only
+`POST /api/v1/github_webhooks` through a separate public HTTPS reverse proxy,
+forwarding over NetBird to guest port `3000` (or the configured
+`ports.pr_agent`). Do not expose Bifrost, CLIProxyAPI, Kandev, SSH, or PR-Agent's
+other paths through that public listener. Configure the GitHub App with:
+
+- Webhook URL: `https://<public-review-host>/api/v1/github_webhooks`
+- Webhook secret: `jq -r .pr_agent_webhook_secret .state/secrets.json`
+
+The guest firewall accepts the PR-Agent port only on `wt0`; the public edge is
+an independently operated ingress boundary and is not created by this repository.
+PR-Agent verifies every webhook signature and rejects requests when its secret
+is absent or incorrect.
+
 ## Credentials and tool configuration
 
 Generated secrets are stored in `.state/secrets.json` with mode `0600`. The CLI never prints them during normal operation. Inspect only the value you need, for example:
@@ -189,6 +250,7 @@ Generated secrets are stored in `.state/secrets.json` with mode `0600`. The CLI 
 jq -r .bifrost_virtual_key .state/secrets.json
 jq -r .bifrost_admin_password .state/secrets.json
 jq -r .cliproxy_management_secret .state/secrets.json
+jq -r .pr_agent_webhook_secret .state/secrets.json
 ```
 
 For a tool that accepts an OpenAI-compatible base URL:
@@ -198,7 +260,7 @@ export OPENAI_BASE_URL=https://bifrost.intra.dle.dev/v1
 export OPENAI_API_KEY="$(jq -r .bifrost_virtual_key .state/secrets.json)"
 ```
 
-Inside the VM, use `http://127.0.0.1:8080/v1`. The requested model must be present in CLIProxyAPI's `/v1/models` response. Change `services.pi.default_model` in the YAML and rerun `configure-bifrost` to select a different default from the live catalog.
+Inside the VM, use `http://127.0.0.1:8080/v1`. The requested model must be present in CLIProxyAPI's `/v1/models` response. Change `services.pi.default_model` in the YAML and rerun `configure-bifrost` to select a different Pi default from the live catalog. Change the two `services.pr_agent` model values and rerun `configure-pr-agent` to change PR-Agent's Bifrost allowlist.
 
 Pi is installed and preconfigured with the Bifrost provider. Changes to the
 managed Pi package restart Kandev so its local-agent discovery is refreshed. In
@@ -218,9 +280,11 @@ SSH tunnel fallbacks are available even before the NetBird proxies are configure
 ```bash
 ssh -L 8080:127.0.0.1:8080 agent@<netbird-address>
 ssh -L 8317:127.0.0.1:8317 agent@<netbird-address>
+ssh -L 3000:127.0.0.1:3000 agent@<netbird-address>
 ```
 
-Then open `http://127.0.0.1:8080` or `http://127.0.0.1:8317/management.html`.
+Then open `http://127.0.0.1:8080`, `http://127.0.0.1:8317/management.html`, or
+`http://127.0.0.1:3000/` for PR-Agent's health response.
 
 ## Routine operations
 
@@ -260,7 +324,7 @@ The `agent` console password comes from `guest.console_agent_password` in the ig
 
 - VM console: `virsh console agent-vm` (log in as `agent` with `guest.console_agent_password`; detach with `Ctrl+]`)
 - VM details: `virsh dominfo agent-vm` and `virsh domifaddr agent-vm --source agent`
-- Services: `sudo systemctl status docker kandev bifrost cliproxyapi netbird`
+- Services: `sudo systemctl status docker kandev pr-agent bifrost cliproxyapi netbird`
 - Logs: `sudo journalctl -u <service> -n 200 --no-pager`
 - NetBird: `sudo netbird status` and `ip addr show wt0`
 - Docker: `docker version`, `docker compose version`, and `docker info`
@@ -269,6 +333,7 @@ The `agent` console password comes from `guest.console_agent_password` in the ig
 - CLIProxyAPI health: `curl http://127.0.0.1:8317/healthz`
 - Bifrost health: `curl http://127.0.0.1:8080/health`
 - Kandev health: `curl http://127.0.0.1:38429/health`
+- PR-Agent health: `curl http://127.0.0.1:3000/`
 
 `doctor` reports provisioning failures separately from pending GitHub registration, Codex OAuth, and NetBird enrollment. Server-side Reverse Proxy services are out of scope and are not probed automatically.
 

@@ -2,10 +2,47 @@ import unittest
 from unittest.mock import patch
 
 from agent_vm.errors import AgentVMError
-from agent_vm.releases import github_latest, npm_latest
+from agent_vm.releases import github_latest, npm_latest, pypi_latest
 
 
 class ReleaseTests(unittest.TestCase):
+    @patch("agent_vm.releases._json")
+    def test_pypi_latest_selects_checksum_verified_universal_wheel(self, metadata):
+        metadata.return_value = {
+            "info": {"version": "0.44.0"},
+            "releases": {
+                "0.44.0": [{
+                    "filename": "pr_agent-0.44.0-py3-none-any.whl",
+                    "url": "https://files.pythonhosted.org/pr_agent.whl",
+                    "digests": {"sha256": "a" * 64},
+                }],
+            },
+        }
+
+        release = pypi_latest("pr-agent")
+
+        self.assertEqual("0.44.0", release.version)
+        self.assertEqual("a" * 64, release.sha256)
+        metadata.assert_called_once_with(
+            "https://pypi.org/pypi/pr-agent/json",
+            accept="application/json",
+        )
+
+    @patch("agent_vm.releases._json")
+    def test_pypi_latest_rejects_wheel_without_checksum(self, metadata):
+        metadata.return_value = {
+            "info": {"version": "0.44.0"},
+            "releases": {
+                "0.44.0": [{
+                    "filename": "pr_agent-0.44.0-py3-none-any.whl",
+                    "url": "https://files.pythonhosted.org/pr_agent.whl",
+                    "digests": {},
+                }],
+            },
+        }
+        with self.assertRaisesRegex(AgentVMError, "no usable SHA-256"):
+            pypi_latest("pr-agent")
+
     @patch("agent_vm.releases._json")
     def test_npm_latest_accepts_stable(self, metadata):
         metadata.return_value = {"version": "1.2.3"}

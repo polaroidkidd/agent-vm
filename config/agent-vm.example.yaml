@@ -5,6 +5,11 @@ NB_HOSTNAME: agent-vm
 NB_MANAGEMENT_URL: 
 NB_SETUP_KEY: replace-with-the-setup-key
 STRIPE_API_KEY: replace-with-a-stripe-api-key
+PR_AGENT_GITHUB_APP_ID: 123456
+PR_AGENT_GITHUB_PRIVATE_KEY: |-
+  -----BEGIN RSA PRIVATE KEY-----
+  replace-with-the-github-app-private-key
+  -----END RSA PRIVATE KEY-----
 
 vm:
   name: agent-vm
@@ -29,6 +34,7 @@ ports:
   kandev: 38429
   bifrost: 8080
   cliproxyapi: 8317
+  pr_agent: 3000
 
 services:
   nvm:
@@ -46,6 +52,12 @@ services:
   cliproxyapi:
     github_repository: router-for-me/CLIProxyAPI
     asset_pattern: "CLIProxyAPI_.*_linux_amd64\\.tar\\.gz$"
+  pr_agent:
+    enabled: true
+    pypi_package: pr-agent
+    model: cliproxy/codex-auto-review
+    fallback_model: cliproxy/gpt-5.6-sol
+    workers: 2
 
 local:
   state_dir: .state

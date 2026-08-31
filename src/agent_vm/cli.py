@@ -33,6 +33,7 @@ def parser() -> argparse.ArgumentParser:
     github.add_argument("--show-only", action="store_true")
     sub.add_parser("configure-cliproxy", help="perform interactive Codex OAuth login")
     sub.add_parser("configure-bifrost", help="reapply and validate Bifrost routing")
+    sub.add_parser("configure-pr-agent", help="install and validate the PR-Agent GitHub App service")
     doctor = sub.add_parser("doctor", help="check infrastructure and integrations")
     doctor.add_argument("--json", action="store_true", dest="json_output")
     doctor.add_argument(
@@ -193,6 +194,32 @@ class App:
             raise AgentVMError("Kandev did not refresh the synchronized Pi model catalog")
         print(kandev_detail)
         print(f"Bifrost is configured. Virtual key is stored in {self.state.secrets_path}")
+
+    def configure_pr_agent(self) -> None:
+        if not self.config.pr_agent:
+            raise AgentVMError(
+                "PR-Agent is disabled; configure services.pr_agent and the GitHub App identity first"
+            )
+        versions = self.state.versions()
+        if "pr_agent" not in versions:
+            versions = resolve_all(self.config)
+            self._provision(versions=versions, tags=["pr-agent"], perform_update=True)
+            self.state.write_json(self.state.versions_path, versions)
+        else:
+            self._provision(tags=["pr-agent"])
+        address, private_key, _, _ = self._existing()
+        result = self.runner.run(
+            self._ssh_args(address, private_key) + [
+                "curl -fsS --retry 5 --retry-delay 2 --retry-connrefused "
+                f"--retry-all-errors --max-time 5 http://127.0.0.1:{self.config.ports['pr_agent']}/"
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AgentVMError("PR-Agent health check failed")
+        print("PR-Agent is running through Bifrost.")
+        print(f"Webhook path: /api/v1/github_webhooks on guest port {self.config.ports['pr_agent']}")
+        print(f"Webhook secret: jq -r .pr_agent_webhook_secret {self.state.secrets_path}")
 
     def doctor(self) -> None:
         address, _, _, _ = self._existing()

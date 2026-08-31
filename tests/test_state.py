@@ -16,6 +16,8 @@ class StateTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(os.stat(state.secrets_path).st_mode & 0o777, 0o600)
             self.assertTrue(first["bifrost_virtual_key"].startswith("sk-bf-"))
+            self.assertTrue(first["pr_agent_bifrost_virtual_key"].startswith("sk-bf-pr-"))
+            self.assertRegex(first["pr_agent_webhook_secret"], r"^[0-9a-f]{64}$")
             self.assertRegex(first["agent_console_password_salt"], r"^[0-9a-f]{16}$")
 
     def test_rotation_replaces_secrets(self):
@@ -24,6 +26,9 @@ class StateTests(unittest.TestCase):
             first = state.ensure_secrets()
             second = state.ensure_secrets(rotate=True)
             self.assertNotEqual(first["bifrost_virtual_key"], second["bifrost_virtual_key"])
+            self.assertNotEqual(
+                first["pr_agent_webhook_secret"], second["pr_agent_webhook_secret"]
+            )
 
     def test_clear_generated_state_removes_provisioning_files(self):
         with tempfile.TemporaryDirectory() as directory:

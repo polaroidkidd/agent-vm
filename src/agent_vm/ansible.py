@@ -59,6 +59,7 @@ class Ansible:
             "node_major": self.config.services["node_major"],
             "ports": self.config.ports,
             "services": self.config.services,
+            "pr_agent": self.config.pr_agent,
             "pi_skills": self.config.pi_skills,
             "versions": versions,
             "generated_secrets": secrets,

@@ -10,6 +10,7 @@ class PlaybookTests(unittest.TestCase):
         for name, tag in (
             ("CLIProxyAPI", "cliproxy"),
             ("Bifrost", "bifrost"),
+            ("PR-Agent", "pr-agent"),
             ("Kandev", "kandev"),
         ):
             with self.subTest(service=name):
@@ -132,6 +133,57 @@ class PlaybookTests(unittest.TestCase):
         task = self.playbook.split("- name: Install Pi model catalog synchronizer", 1)[1].split("\n\n", 1)[0]
         self.assertIn("agent-vm-sync-pi-models", task)
         self.assertIn("tags: [services, pi, bifrost]", task)
+
+    def test_pr_agent_uses_verified_release_and_dedicated_bifrost_key(self):
+        for name in (
+            "Resolve active NVM Node.js binary",
+            "Record active NVM Node.js binary directory",
+        ):
+            with self.subTest(task=name):
+                task = self.playbook.split(f"- name: {name}", 1)[1].split("\n\n", 1)[0]
+                self.assertIn("tags: [services, pr-agent]", task)
+
+        download = self.playbook.split("- name: Download verified PR-Agent wheel", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("versions.pr_agent.url", download)
+        self.assertIn('checksum: "sha256:{{ versions.pr_agent.sha256 }}"', download)
+
+        secrets = (
+            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent-secrets.toml.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("generated_secrets.pr_agent_bifrost_virtual_key", secrets)
+        self.assertIn('api_base = "http://127.0.0.1:{{ ports.bifrost }}/v1"', secrets)
+        self.assertIn("pr_agent.github_app_id | string | to_json", secrets)
+
+        bifrost = (
+            Path(__file__).parents[1] / "ansible" / "templates" / "bifrost-config.json.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"id": "vk-pr-agent"', bifrost)
+        self.assertIn('"allowed_models": [{{ pr_agent.model | to_json }}', bifrost)
+
+    def test_pr_agent_is_restricted_to_review_only_automation(self):
+        environment = (
+            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent.env.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn('GITHUB_APP__PR_COMMANDS=["/review"]', environment)
+        self.assertIn("GITHUB_APP__HANDLE_PUSH_TRIGGER=false", environment)
+        self.assertIn("CONFIG__RESTRICTED_MODE=true", environment)
+        self.assertIn("LITELLM__CUSTOM_LLM_PROVIDER=openai", environment)
+
+        unit = (
+            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent.service.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Requires=bifrost.service", unit)
+        self.assertIn("python:pr_agent.servers.gunicorn_config", unit)
+        self.assertIn("ProtectSystem=strict", unit)
+        self.assertIn("ProtectHome=read-only", unit)
+
+        disabled = self.playbook.split(
+            "- name: Disable PR-Agent service when not configured", 1
+        )[1].split("\n\n", 1)[0]
+        self.assertIn("enabled: false", disabled)
+        self.assertIn("state: stopped", disabled)
 
     def test_provision_does_not_overwrite_synchronized_pi_catalog(self):
         for name in ("Configure Pi provider through Bifrost", "Configure Pi defaults"):

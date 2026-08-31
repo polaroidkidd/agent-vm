@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent_vm.doctor import (
+    _has_model,
     _has_models,
     _kandev_pi_capabilities,
     _kandev_pi_discovery,
@@ -98,6 +99,12 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(_has_models('{"data": []}'))
         self.assertFalse(_has_models('{"status": "ok"}'))
         self.assertFalse(_has_models('not json'))
+
+    def test_model_catalog_matches_exact_or_provider_prefixed_id(self):
+        catalog = '{"data":[{"id":"cliproxy/gpt-test"}]}'
+        self.assertTrue(_has_model(catalog, "cliproxy/gpt-test"))
+        self.assertTrue(_has_model(catalog, "gpt-test"))
+        self.assertFalse(_has_model(catalog, "gpt-other"))
 
     def test_kandev_pi_capabilities_require_ok_with_models(self):
         ready, detail = _kandev_pi_capabilities(
