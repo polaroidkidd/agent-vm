@@ -21,3 +21,6 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+
+# Local isolated feature worktrees.
+.worktrees/
