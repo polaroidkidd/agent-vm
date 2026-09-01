@@ -33,7 +33,11 @@ VALID = {
         "uv": {"version": "0.12.7"},
         "node_major": 24,
         "kandev": {"npm_package": "kandev"},
-        "pi": {"npm_package": "@earendil-works/pi-coding-agent", "default_model": "model"},
+        "pi": {
+            "npm_package": "@earendil-works/pi-coding-agent",
+            "superpowers_package": "@weiping/pi-superpowers",
+            "default_model": "model",
+        },
         "bifrost": {"npm_package": "bifrost"},
         "cliproxyapi": {"github_repository": "owner/repo", "asset_pattern": "linux"},
     },
@@ -230,6 +234,18 @@ class ConfigTests(unittest.TestCase):
         raw = copy.deepcopy(VALID)
         raw["services"]["pi"]["npm_package"] = "@mariozechner/pi-coding-agent"
         with self.assertRaisesRegex(AgentVMError, "Kandev Pi ACP compatibility"):
+            self.config(raw).validate()
+
+    def test_pi_superpowers_package_is_required(self):
+        raw = copy.deepcopy(VALID)
+        del raw["services"]["pi"]["superpowers_package"]
+        with self.assertRaisesRegex(AgentVMError, "services.pi.superpowers_package"):
+            self.config(raw).validate()
+
+    def test_pi_superpowers_package_is_pinned_to_supported_distribution(self):
+        raw = copy.deepcopy(VALID)
+        raw["services"]["pi"]["superpowers_package"] = "other-package"
+        with self.assertRaisesRegex(AgentVMError, "@weiping/pi-superpowers"):
             self.config(raw).validate()
 
     def test_repository_pi_skills_are_discovered_for_ansible(self):

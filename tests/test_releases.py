@@ -1,8 +1,12 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from agent_vm.config import Config
 from agent_vm.errors import AgentVMError
-from agent_vm.releases import github_latest, npm_latest, pypi_latest
+from agent_vm.releases import github_latest, npm_latest, pypi_latest, resolve_all
+
+from tests.test_config import VALID
 
 
 class ReleaseTests(unittest.TestCase):
@@ -87,6 +91,39 @@ class ReleaseTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(AgentVMError, "no usable SHA-256"):
             github_latest("owner/repo", r"linux_amd64\.tar\.gz$")
+
+    @patch("agent_vm.releases._json")
+    def test_resolve_all_records_exact_pi_superpowers_release(self, metadata):
+        def response(url, *, accept):
+            if url.startswith("https://registry.npmjs.org/"):
+                return {"version": "5.1.0"}
+            return {
+                "tag_name": "v7.1.0",
+                "draft": False,
+                "prerelease": False,
+                "assets": [{
+                    "name": "CLIProxyAPI_7.1.0_linux_amd64.tar.gz",
+                    "browser_download_url": "https://example.test/asset",
+                    "digest": "sha256:" + "a" * 64,
+                }],
+            }
+
+        metadata.side_effect = response
+        config = Config(path=Path("config.yaml"), root=Path("/tmp/repo"), raw=VALID)
+
+        releases = resolve_all(config)
+
+        self.assertIn("pi_superpowers", releases)
+        self.assertEqual(
+            releases["pi_superpowers"],
+            {
+                "version": "5.1.0",
+                "source": "npm:@weiping/pi-superpowers",
+                "url": None,
+                "sha256": None,
+                "asset": None,
+            },
+        )
 
 
 if __name__ == "__main__":

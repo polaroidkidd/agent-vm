@@ -136,6 +136,13 @@ class Config:
                 "services.pi.npm_package must be @earendil-works/pi-coding-agent "
                 "for Kandev Pi ACP compatibility"
             )
+        superpowers_package = _required(
+            services["pi"], "superpowers_package", str, "services.pi"
+        )
+        if superpowers_package != "@weiping/pi-superpowers":
+            raise AgentVMError(
+                "services.pi.superpowers_package must be @weiping/pi-superpowers"
+            )
         _required(services["pi"], "default_model", str, "services.pi")
         self.pi_skills
         cliproxy = _required(services, "cliproxyapi", dict, "services")

@@ -119,6 +119,9 @@ def resolve_all(config: Config) -> dict:
     values = {
         "kandev": npm_latest(services["kandev"]["npm_package"]).to_dict(),
         "pi": npm_latest(services["pi"]["npm_package"]).to_dict(),
+        "pi_superpowers": npm_latest(
+            services["pi"]["superpowers_package"]
+        ).to_dict(),
         "bifrost": npm_latest(services["bifrost"]["npm_package"]).to_dict(),
         "cliproxyapi": github_latest(
             services["cliproxyapi"]["github_repository"],

@@ -647,6 +647,51 @@
         force: false
       tags: [services, pi]
 
+    - name: List global Pi packages
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/pi
+          - list
+      become_user: "{{ agent_user }}"
+      environment:
+        HOME: "/home/{{ agent_user }}"
+        PATH: "{{ nvm_node_bin_dir }}:/usr/local/bin:/usr/bin:/bin"
+      register: pi_global_packages
+      changed_when: false
+      tags: [services, pi, skills]
+
+    - name: Inspect installed Pi Superpowers package
+      ansible.builtin.stat:
+        path: "/home/{{ agent_user }}/.pi/agent/npm/node_modules/@weiping/pi-superpowers/package.json"
+      register: pi_superpowers_manifest
+      tags: [services, pi, skills]
+
+    - name: Read installed Pi Superpowers manifest
+      ansible.builtin.slurp:
+        src: "/home/{{ agent_user }}/.pi/agent/npm/node_modules/@weiping/pi-superpowers/package.json"
+      register: pi_superpowers_manifest_content
+      when: pi_superpowers_manifest.stat.exists
+      tags: [services, pi, skills]
+
+    - name: Install exact global Pi packages
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/pi
+          - install
+          - "npm:{{ services.pi.superpowers_package }}@{{ versions.pi_superpowers.version }}"
+      become_user: "{{ agent_user }}"
+      environment:
+        HOME: "/home/{{ agent_user }}"
+        PATH: "{{ nvm_node_bin_dir }}:/usr/local/bin:/usr/bin:/bin"
+      when: >-
+        ("npm:" ~ services.pi.superpowers_package ~ "@" ~ versions.pi_superpowers.version)
+          not in pi_global_packages.stdout
+        or
+        ((pi_superpowers_manifest_content.content | default("e30=") | b64decode | from_json).version
+          | default("")) != versions.pi_superpowers.version
+      notify: Restart Kandev
+      tags: [services, pi, skills]
+
     - name: Install Pi model catalog synchronizer
       ansible.builtin.copy:
         src: files/agent-vm-sync-pi-models

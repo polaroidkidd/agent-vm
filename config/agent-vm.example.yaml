@@ -46,6 +46,7 @@ services:
     npm_package: kandev
   pi:
     npm_package: "@earendil-works/pi-coding-agent"
+    superpowers_package: "@weiping/pi-superpowers"
     default_model: gpt-5.6-sol
   bifrost:
     npm_package: "@maximhq/bifrost"

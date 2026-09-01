@@ -69,6 +69,10 @@ Run every command from the repository root.
      uv:
        version: 0.12.7
      node_major: 24
+     pi:
+       npm_package: "@earendil-works/pi-coding-agent"
+       superpowers_package: "@weiping/pi-superpowers"
+       default_model: gpt-5.6-sol
      pr_agent:
        enabled: true
        pypi_package: pr-agent
@@ -90,6 +94,11 @@ Run every command from the repository root.
    `/home/agent/.agents/skills/<name>`. Pi discovers that user-global location when
    Kandev starts a new agent session. Each immediate subdirectory of `skills/` must
    have a valid lowercase skill name and contain `SKILL.md`.
+
+   Pi Superpowers is installed globally for the shared `agent` account using the
+   exact npm release recorded during `create` or `update`. Its bootstrap extension,
+   skills, and prompt templates are available to every new Pi session after Kandev
+   restarts.
 
    Node.js is installed for `agent` through the pinned NVM release. The configured
    major selects the Node.js release line; NVM-managed `node`, `npm`, `npx`,

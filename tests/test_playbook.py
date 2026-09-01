@@ -119,6 +119,23 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("services.pi.npm_package", task)
         self.assertIn("notify: Restart Kandev", task)
 
+    def test_exact_global_pi_superpowers_package_is_installed_for_agent(self):
+        self.assertIn("- name: Install exact global Pi packages", self.playbook)
+        task = self.playbook.split("- name: Install exact global Pi packages", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("/usr/local/bin/pi", task)
+        self.assertIn("install", task)
+        self.assertIn("services.pi.superpowers_package", task)
+        self.assertIn("versions.pi_superpowers.version", task)
+        self.assertIn('become_user: "{{ agent_user }}"', task)
+        self.assertIn('HOME: "/home/{{ agent_user }}"', task)
+        self.assertIn("pi_global_packages.stdout", task)
+        self.assertNotIn("pi_global_packages.stdout_lines", task)
+        self.assertIn("pi_superpowers_manifest_content.content", task)
+        self.assertIn("notify: Restart Kandev", task)
+        self.assertIn("tags: [services, pi, skills]", task)
+
     def test_bifrost_recovers_interrupted_runtime_download_before_one_final_start(self):
         cleanup = self.playbook.index("- name: Remove interrupted Bifrost runtime downloads")
         flush = self.playbook.index("- name: Apply pending service restarts")
