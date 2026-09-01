@@ -29,6 +29,10 @@ guest:
   timezone: Europe/Zurich
   console_agent_password: replace-with-an-agent-console-password
   console_root_password: replace-with-a-console-root-password
+  git:
+    sign_commits: true
+    name: Replace With Your Name
+    email: replace-with-your-verified-email@example.com
 
 ports:
   kandev: 38429

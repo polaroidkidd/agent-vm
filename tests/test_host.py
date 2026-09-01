@@ -16,6 +16,7 @@ class HostTests(unittest.TestCase):
                 "ssh",
                 "ssh-keygen",
                 "ssh-keyscan",
+                "gpg",
                 "openssl",
                 "setfacl",
             },

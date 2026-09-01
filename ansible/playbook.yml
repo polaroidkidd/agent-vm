@@ -25,6 +25,7 @@
           - curl
           - git
           - gh
+          - gnupg
           - jq
           - openssh-server
           - python3
@@ -149,7 +150,16 @@
         group: "{{ agent_user }}"
         mode: "0600"
       no_log: true
-      tags: [base]
+      tags: [base, git]
+
+    - name: Install GitHub SSH public key
+      ansible.builtin.copy:
+        content: "{{ github_public_key }}\n"
+        dest: "/home/{{ agent_user }}/.ssh/github_ed25519.pub"
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0644"
+      tags: [base, git]
 
     - name: Pin GitHub Ed25519 host key
       ansible.builtin.copy:
@@ -158,7 +168,7 @@
         owner: "{{ agent_user }}"
         group: "{{ agent_user }}"
         mode: "0600"
-      tags: [base]
+      tags: [base, git]
 
     - name: Configure SSH-only GitHub access
       ansible.builtin.copy:
@@ -174,7 +184,7 @@
             IdentitiesOnly yes
             StrictHostKeyChecking yes
             UserKnownHostsFile ~/.ssh/known_hosts
-      tags: [base]
+      tags: [base, git]
 
     - name: Force GitHub HTTPS remotes to SSH
       community.general.git_config:
@@ -182,7 +192,75 @@
         value: "https://github.com/"
         scope: global
       become_user: "{{ agent_user }}"
-      tags: [base]
+      tags: [base, git]
+
+    - name: Ensure agent GnuPG home
+      ansible.builtin.file:
+        path: "/home/{{ agent_user }}/.gnupg"
+        state: directory
+        owner: "{{ agent_user }}"
+        group: "{{ agent_user }}"
+        mode: "0700"
+      when: git_sign_commits
+      tags: [base, git]
+
+    - name: Inspect Git commit signing key
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --batch
+          - --list-secret-keys
+          - "{{ git_signing_fingerprint }}"
+      become_user: "{{ agent_user }}"
+      environment:
+        GNUPGHOME: "/home/{{ agent_user }}/.gnupg"
+      register: git_signing_key_status
+      changed_when: false
+      failed_when: false
+      when: git_sign_commits
+      tags: [base, git]
+
+    - name: Import Git commit signing key
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --batch
+          - --import
+        stdin: "{{ git_signing_private_key }}"
+      become_user: "{{ agent_user }}"
+      environment:
+        GNUPGHOME: "/home/{{ agent_user }}/.gnupg"
+      when:
+        - git_sign_commits
+        - git_signing_key_status.rc != 0
+      no_log: true
+      tags: [base, git]
+
+    - name: Configure Git commit signing identity
+      community.general.git_config:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        scope: global
+      loop:
+        - name: gpg.format
+          value: openpgp
+        - name: user.name
+          value: "{{ git_identity.name }}"
+        - name: user.email
+          value: "{{ git_identity.email }}"
+        - name: user.signingkey
+          value: "{{ git_signing_fingerprint }}"
+      when: git_sign_commits
+      become_user: "{{ agent_user }}"
+      tags: [base, git]
+
+    - name: Configure automatic Git commit signing
+      community.general.git_config:
+        name: commit.gpgsign
+        value: "{{ git_sign_commits | ternary('true', 'false') }}"
+        scope: global
+      become_user: "{{ agent_user }}"
+      tags: [base, git]
 
     - name: Harden SSH daemon
       ansible.builtin.copy:

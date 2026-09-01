@@ -62,6 +62,10 @@ Run every command from the repository root.
    guest:
      console_agent_password: replace-with-an-agent-console-password
      console_root_password: replace-with-a-console-root-password
+     git:
+       sign_commits: true
+       name: Replace With Your Name
+       email: replace-with-your-verified-email@example.com
 
    services:
      nvm:
@@ -116,23 +120,37 @@ Run every command from the repository root.
    ./agent-vm create
    ```
 
-   This generates `.state/admin_ed25519`, `.state/github_ed25519`, application secrets, resolved versions, the QCOW2 overlay, and cloud-init data. `.state` is ignored and restricted locally.
+   This generates `.state/admin_ed25519`, `.state/github_ed25519`, an OpenPGP
+   commit-signing key, application secrets, resolved versions, the QCOW2 overlay,
+   and cloud-init data. `.state` is ignored and restricted locally.
 
    System libvirt runs QEMU as `libvirt-qemu`. `create` adds narrow POSIX ACL entries that grant this account traversal through otherwise-private parent directories and access only to the QCOW2 overlay, cloud-init seed, and verified base image. Other `.state` files remain inaccessible.
 
-3. Register the generated GitHub public key at <https://github.com/settings/keys>:
+3. Register the generated SSH authentication key and OpenPGP signing key with
+   GitHub. This command prints both public keys and their registration URLs:
 
    ```bash
    ./agent-vm configure-github --show-only
    ```
 
-   After registering it, verify SSH authentication:
+   Add the SSH key at **Settings → SSH and GPG keys → New SSH key** as an
+   **Authentication Key**. Add the armored OpenPGP block at **New GPG key**. The
+   configured Git email must be verified on the GitHub account.
+
+   After registering both, import the private OpenPGP key into the guest, apply
+   the Git configuration, and verify SSH authentication:
 
    ```bash
    ./agent-vm configure-github
    ```
 
-   The VM accepts GitHub Git traffic through SSH only and pins GitHub's published Ed25519 host key.
+   The VM accepts GitHub Git traffic through SSH only and pins GitHub's published
+   Ed25519 host key. When `guest.git.sign_commits` is `true`, provisioning imports
+   the generated private OpenPGP key into the shared `agent` account and configures
+   Git to sign every commit—including Kandev commits—with its fingerprint. Set it
+   to `false` to disable automatic signing. The unencrypted private key exists only
+   in ignored mode-`0600` state and the guest's private GnuPG keyring so Kandev can
+   sign non-interactively.
 
 4. Complete the interactive Codex OAuth login:
 

@@ -90,6 +90,19 @@ class Config:
             console_passwords[key] = password
         if console_passwords["console_agent_password"] == console_passwords["console_root_password"]:
             raise AgentVMError("guest console passwords must be distinct")
+        git = guest.get("git", {})
+        if not isinstance(git, dict):
+            raise AgentVMError("guest.git must be a mapping")
+        sign_commits = git.get("sign_commits", False)
+        if not isinstance(sign_commits, bool):
+            raise AgentVMError("guest.git.sign_commits must be a boolean")
+        if sign_commits:
+            for key in ("name", "email"):
+                value = _required(git, key, str, "guest.git")
+                if any(character in value for character in "\r\n\0"):
+                    raise AgentVMError(f"guest.git.{key} must be a single-line string")
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+", git["email"]):
+                raise AgentVMError("guest.git.email must be an email address")
         workspace = Path(_required(guest, "workspace_dir", str, "guest"))
         if not workspace.is_absolute():
             raise AgentVMError("guest.workspace_dir must be absolute")
@@ -214,6 +227,15 @@ class Config:
     @property
     def guest(self) -> dict:
         return self.raw["guest"]
+
+    @property
+    def git_sign_commits(self) -> bool:
+        return self.guest.get("git", {}).get("sign_commits", False)
+
+    @property
+    def git_identity(self) -> dict[str, str]:
+        git = self.guest.get("git", {})
+        return {"name": git["name"], "email": git["email"]}
 
     @property
     def ports(self) -> dict:

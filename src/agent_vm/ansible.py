@@ -42,6 +42,7 @@ class Ansible:
         perform_update: bool = False,
     ) -> tuple[Path, Path]:
         self.state.ensure()
+        git_signing_key = self.state.git_signing_key() if self.config.git_sign_commits else None
         inventory = self.state.directory / "inventory.ini"
         variables = self.state.directory / "ansible-vars.json"
         ssh_args = f"-o UserKnownHostsFile={self.state.directory / 'known_hosts'} -o StrictHostKeyChecking=yes"
@@ -56,6 +57,14 @@ class Ansible:
             "agent_user": self.config.guest["user"],
             "agent_console_password_hash": self._console_agent_password_hash(secrets),
             "workspace_dir": self.config.guest["workspace_dir"],
+            "git_sign_commits": self.config.git_sign_commits,
+            "git_identity": self.config.git_identity if self.config.git_sign_commits else None,
+            "git_signing_private_key": (
+                git_signing_key["private_key"] if git_signing_key else None
+            ),
+            "git_signing_fingerprint": (
+                git_signing_key["fingerprint"] if git_signing_key else None
+            ),
             "node_major": self.config.services["node_major"],
             "ports": self.config.ports,
             "services": self.config.services,

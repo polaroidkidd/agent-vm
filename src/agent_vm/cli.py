@@ -29,7 +29,9 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("create", help="create and provision a new VM")
     sub.add_parser("provision", help="idempotently apply recorded versions")
     sub.add_parser("configure-netbird", help="enroll or repair the NetBird client")
-    github = sub.add_parser("configure-github", help="show and test the VM GitHub SSH key")
+    github = sub.add_parser(
+        "configure-github", help="show, apply, and test VM GitHub authentication and signing keys"
+    )
     github.add_argument("--show-only", action="store_true")
     sub.add_parser("configure-cliproxy", help="perform interactive Codex OAuth login")
     sub.add_parser("configure-bifrost", help="reapply and validate Bifrost routing")
@@ -65,6 +67,7 @@ class App:
         if not private_key.exists():
             raise AgentVMError("Administrative SSH key is missing; rebuild is required")
         secrets = self.state.ensure_secrets()
+        self._ensure_git_signing_key()
         versions = self.state.versions()
         if not versions:
             raise AgentVMError("Resolved version state is missing; run update or rebuild")
@@ -75,6 +78,15 @@ class App:
             metadata["address"] = address
             self.state.write_json(self.state.metadata_path, metadata)
         return address, private_key, secrets, versions
+
+    def _ensure_git_signing_key(self, *, rotate: bool = False) -> dict[str, str] | None:
+        if not self.config.git_sign_commits:
+            return None
+        return self.state.ensure_git_signing_key(
+            self.config.git_identity["name"],
+            self.config.git_identity["email"],
+            rotate=rotate,
+        )
 
     def _provision(self, *, versions: dict | None = None, tags: list[str] | None = None, perform_update: bool = False) -> None:
         address, private_key, secrets, recorded = self._existing()
@@ -98,6 +110,7 @@ class App:
             self.state.clear_generated_state()
         admin_key = self.state.ensure_ssh_key("admin_ed25519", rotate=rotate)
         self.state.ensure_ssh_key("github_ed25519", rotate=rotate)
+        self._ensure_git_signing_key(rotate=rotate)
         secrets = self.state.ensure_secrets(rotate=rotate)
         versions = resolve_all(self.config)
         self.state.write_json(self.state.versions_path, versions)
@@ -113,7 +126,7 @@ class App:
         )
         self.ansible.run(inventory, variables)
         print(f"Created {self.vm.name} at {address}")
-        print(f"Next: register {self.state.directory / 'github_ed25519.pub'}, then run configure-github")
+        print("Next: run configure-github --show-only and register both public keys")
 
     def provision(self) -> None:
         self._provision()
@@ -122,12 +135,17 @@ class App:
         self._provision(tags=["netbird"])
 
     def configure_github(self) -> None:
-        address, private_key, _, _ = self._existing()
         public_key = Path(str(self.state.directory / "github_ed25519") + ".pub")
-        print("Register this authentication key at https://github.com/settings/keys:\n")
+        print("Register this SSH authentication key at https://github.com/settings/keys:\n")
         print(public_key.read_text(encoding="utf-8").strip())
+        signing_key = self._ensure_git_signing_key()
+        if signing_key:
+            print("\nRegister this GPG key at https://github.com/settings/gpg/new:\n")
+            print(signing_key["public_key"].strip())
         if self.args.show_only:
             return
+        self._provision(tags=["git"])
+        address, private_key, _, _ = self._existing()
         result = self.runner.run(self._ssh_args(address, private_key) + ["ssh -o BatchMode=yes -T git@github.com 2>&1"], check=False, capture=True)
         text = (result.stdout + result.stderr).strip()
         if "successfully authenticated" not in text:

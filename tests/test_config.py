@@ -22,6 +22,11 @@ VALID = {
         "workspace_dir": "/home/agent/workspaces",
         "console_agent_password": "agent-console-secret",
         "console_root_password": "console-secret",
+        "git": {
+            "sign_commits": True,
+            "name": "Agent User",
+            "email": "agent@example.test",
+        },
     },
     "ports": {"kandev": 38429, "bifrost": 8080, "cliproxyapi": 8317},
     "NB_HOSTNAME": "agent-vm",
@@ -91,6 +96,37 @@ class ConfigTests(unittest.TestCase):
         raw = copy.deepcopy(VALID)
         raw["guest"]["console_agent_password"] = raw["guest"]["console_root_password"]
         with self.assertRaisesRegex(AgentVMError, "console passwords must be distinct"):
+            self.config(raw).validate()
+
+    def test_git_commit_signing_is_configurable(self):
+        config = self.config()
+        config.validate()
+        self.assertTrue(config.git_sign_commits)
+
+        raw = copy.deepcopy(VALID)
+        del raw["guest"]["git"]
+        config = self.config(raw)
+        config.validate()
+        self.assertFalse(config.git_sign_commits)
+
+    def test_git_commit_signing_must_be_boolean(self):
+        raw = copy.deepcopy(VALID)
+        raw["guest"]["git"]["sign_commits"] = "yes"
+        with self.assertRaisesRegex(AgentVMError, "guest.git.sign_commits must be a boolean"):
+            self.config(raw).validate()
+
+    def test_enabled_git_commit_signing_requires_identity(self):
+        for key in ("name", "email"):
+            with self.subTest(key=key):
+                raw = copy.deepcopy(VALID)
+                del raw["guest"]["git"][key]
+                with self.assertRaisesRegex(AgentVMError, f"guest.git.{key}"):
+                    self.config(raw).validate()
+
+    def test_git_commit_signing_email_must_be_valid(self):
+        raw = copy.deepcopy(VALID)
+        raw["guest"]["git"]["email"] = "not-an-email"
+        with self.assertRaisesRegex(AgentVMError, "guest.git.email must be an email address"):
             self.config(raw).validate()
 
     def test_ports_must_be_unique(self):

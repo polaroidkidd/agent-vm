@@ -19,6 +19,7 @@ REQUIRED_COMMANDS = (
     "ssh",
     "ssh-keygen",
     "ssh-keyscan",
+    "gpg",
     "openssl",
     "setfacl",
 )

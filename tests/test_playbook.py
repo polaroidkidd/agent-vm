@@ -73,6 +73,37 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("ProtectHome=read-only", unit)
         self.assertIn("/home/{{ agent_user }}/.npm", unit.split("ReadWritePaths=", 1)[1])
 
+    def test_git_commit_signing_imports_generated_openpgp_key(self):
+        packages = self.playbook.split("- name: Install base packages", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("- gnupg", packages)
+
+        imported = self.playbook.split("- name: Import Git commit signing key", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("--import", imported)
+        self.assertIn('stdin: "{{ git_signing_private_key }}"', imported)
+        self.assertIn("no_log: true", imported)
+
+        task = self.playbook.split("- name: Configure Git commit signing identity", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn('name: "{{ item.name }}"', task)
+        self.assertIn('value: "{{ item.value }}"', task)
+        self.assertIn("name: gpg.format", task)
+        self.assertIn("value: openpgp", task)
+        self.assertIn("name: user.name", task)
+        self.assertIn("name: user.email", task)
+        self.assertIn("value: \"{{ git_signing_fingerprint }}\"", task)
+        self.assertIn("when: git_sign_commits", task)
+        self.assertIn('become_user: "{{ agent_user }}"', task)
+        self.assertIn("tags: [base, git]", task)
+
+        automatic = self.playbook.split("- name: Configure automatic Git commit signing", 1)[
+            1
+        ].split("\n\n", 1)[0]
+        self.assertIn("name: commit.gpgsign", automatic)
+        self.assertIn("git_sign_commits | ternary('true', 'false')", automatic)
+
     def test_stripe_api_key_is_provisioned_for_workloads_and_shells(self):
         task = self.playbook.split("- name: Configure agent workload environment", 1)[1].split(
             "\n\n", 1
