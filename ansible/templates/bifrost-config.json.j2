@@ -71,7 +71,7 @@
         "provider_configs": [
           {
             "provider": "cliproxy",
-            "allowed_models": [{{ pr_agent.model | to_json }}, {{ pr_agent.fallback_model | to_json }}],
+            "allowed_models": [{{ pr_agent.bifrost_model | to_json }}, {{ pr_agent.bifrost_fallback_model | to_json }}],
             "key_ids": ["*"],
             "weight": 1
           }

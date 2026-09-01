@@ -223,6 +223,8 @@ class Config:
             return None
         return {
             **service,
+            "bifrost_model": service["model"].split("/", 1)[-1],
+            "bifrost_fallback_model": service["fallback_model"].split("/", 1)[-1],
             "github_app_id": self.raw["PR_AGENT_GITHUB_APP_ID"],
             "github_private_key": self.raw["PR_AGENT_GITHUB_PRIVATE_KEY"],
         }

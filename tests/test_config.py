@@ -115,6 +115,8 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual("cliproxy/codex-auto-review", config.pr_agent["model"])
         self.assertEqual(123456, config.pr_agent["github_app_id"])
+        self.assertEqual("codex-auto-review", config.pr_agent["bifrost_model"])
+        self.assertEqual("gpt-5.6-sol", config.pr_agent["bifrost_fallback_model"])
 
     def test_disabled_pr_agent_does_not_require_credentials(self):
         raw = copy.deepcopy(VALID)

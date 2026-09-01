@@ -155,12 +155,15 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("generated_secrets.pr_agent_bifrost_virtual_key", secrets)
         self.assertIn('api_base = "http://127.0.0.1:{{ ports.bifrost }}/v1"', secrets)
         self.assertIn("pr_agent.github_app_id | string | to_json", secrets)
+        self.assertIn("[config]", secrets)
+        self.assertIn("fallback_models = {{ [pr_agent.fallback_model] | to_json }}", secrets)
 
         bifrost = (
             Path(__file__).parents[1] / "ansible" / "templates" / "bifrost-config.json.j2"
         ).read_text(encoding="utf-8")
         self.assertIn('"id": "vk-pr-agent"', bifrost)
-        self.assertIn('"allowed_models": [{{ pr_agent.model | to_json }}', bifrost)
+        self.assertIn("pr_agent.bifrost_model | to_json", bifrost)
+        self.assertIn("pr_agent.bifrost_fallback_model | to_json", bifrost)
 
     def test_pr_agent_is_restricted_to_review_only_automation(self):
         environment = (
@@ -169,6 +172,10 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn('GITHUB_APP__PR_COMMANDS=["/review"]', environment)
         self.assertIn("GITHUB_APP__HANDLE_PUSH_TRIGGER=false", environment)
         self.assertIn("CONFIG__RESTRICTED_MODE=true", environment)
+        self.assertIn("CONFIG__MAX_MODEL_TOKENS=200000", environment)
+        self.assertIn("CONFIG__TEMPERATURE=1", environment)
+        self.assertIn("CONFIG__LOG_LEVEL=INFO", environment)
+        self.assertNotIn("CONFIG__FALLBACK_MODELS", environment)
         self.assertIn("LITELLM__CUSTOM_LLM_PROVIDER=openai", environment)
 
         unit = (
