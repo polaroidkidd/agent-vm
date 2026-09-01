@@ -1,0 +1,233 @@
+version: 1
+type: kandev_workflow
+workflows:
+  - name: Development
+    description: Refine, approve, implement, review, and publish development tasks.
+    steps:
+      - name: Backlog
+        position: 0
+        color: bg-neutral-400
+        events: {}
+        is_start_step: true
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+
+      - name: Refinement
+        position: 1
+        color: bg-slate-500
+        prompt: |-
+          {{task_prompt}}
+
+          Refine this task into an implementation-ready specification.
+
+          Do not modify production code. You may inspect the repository, update the
+          Kandev task plan, write its Markdown mirror, and commit only that plan file.
+
+          Skill loading:
+
+          1. Inspect the active skill catalog for Superpowers. Load only the skills
+             required for the current refinement phase.
+          2. If Superpowers is unavailable, report that prerequisite as a blocker and
+             remain in Refinement. Do not claim the plan is complete.
+          3. If the task description is light or underspecified, ask the user whether
+             the task should be brainstormed further before refinement continues. Wait
+             for the answer. If approved, follow the Superpowers brainstorming flow.
+          4. Continue with the applicable Superpowers planning flow after requirements
+             and design decisions are approved.
+
+          During refinement:
+
+          1. Determine whether the requested behavior is still relevant to the current
+             codebase.
+          2. Locate the affected applications, packages, modules, callers, tests, and
+             existing implementation.
+          3. Identify ambiguities, missing requirements, edge cases, dependencies, and
+             architectural decisions.
+          4. Ask one focused question at a time whenever a product, UX, architectural,
+             or behavioral decision cannot be inferred safely.
+          5. Propose a concrete implementation approach with acceptance criteria and a
+             test strategy.
+          6. Include a Markdown section headed exactly:
+
+             ## Which assumptions need to be true in order for your plan to be successful?
+
+             Answer it with concrete runtime, repository, integration, credential, and
+             behavioral assumptions. Do not merely repeat requirements.
+
+          Plan persistence:
+
+          1. Discover the canonical create_task_plan_kandev,
+             get_task_plan_kandev, and update_task_plan_kandev tools in the active
+             Kandev task server.
+          2. Create or update the single shared Kandev task plan. This plan is the
+             authoritative representation.
+          3. Obtain the current Kandev task ID from task context and mirror the exact
+             authoritative Markdown to docs/plans/<task-id>.md in the task worktree.
+          4. Use the ggs skill to inspect Git state, stage only the Markdown plan, review
+             the staged diff, and commit it atomically. Do not push and do not open a
+             pull or merge request.
+          5. If either plan representation cannot be updated or the plan commit fails,
+             report the blocker and remain in Refinement.
+
+          When sufficiently specified, summarize:
+
+          - Problem
+          - Current behavior
+          - Desired behavior
+          - Proposed implementation
+          - Acceptance criteria
+          - Test strategy
+          - Which assumptions need to be true in order for your plan to be successful?
+          - Open questions
+
+          The task must remain awaiting human approval. Do not call `step_complete_kandev`; a manual move to In Progress is the approval signal.
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
+        wip_limit: 3
+
+      - name: In Progress
+        position: 2
+        color: bg-blue-500
+        prompt: |-
+          {{task_prompt}}
+
+          The human move into In Progress approves the current plan. Do not ask for
+          plan approval again. Start implementation automatically.
+
+          1. Discover and call get_task_plan_kandev, then read the complete shared
+             Kandev task plan before changing code.
+          2. Read docs/plans/<task-id>.md. The Kandev task plan is authoritative. If a
+             user edited it in Kandev, mirror the exact current plan to the Markdown
+             file and use ggs to make a plan-only commit before implementation.
+          3. Lazily load the applicable Superpowers execution skills when available and
+             implement the approved plan task by task.
+          4. Add or update the specified tests. Run verification proportional to risk
+             and confirm the actual command output before claiming success.
+          5. Preserve unrelated work. Use ggs to stage explicit paths, inspect staged
+             diffs, and create atomic commits that follow repository conventions.
+          6. Use ggs to push every implementation and plan-sync commit to the configured
+             repository and verify the remote branch.
+          7. Do not open a pull or merge request from In Progress.
+
+          If implementation, verification, commit, or push is incomplete or blocked,
+          explain the blocker and remain in In Progress. Do not signal completion merely
+          because the turn or context is ending.
+
+          Only after the approved plan is fully implemented, required verification has
+          passed, all intended changes are committed, and the push has succeeded,
+          discover and call step_complete_kandev with a concise implementation and
+          verification summary. That signal advances the task to Review.
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+          on_turn_complete:
+            - type: move_to_step
+              config:
+                step_position: 3
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: true
+        cancel_triggers_turn_complete: false
+
+      - name: Review
+        position: 3
+        color: bg-yellow-500
+        prompt: |-
+          Review the changed files in the current Git worktree. Do not modify production
+          code during review.
+
+          Determine the review range:
+
+          - If there are uncommitted or staged changes, review those changed files.
+          - If the worktree is clean, detect the remote default branch, set BASE_REF to
+            its remote-tracking ref, compute `git merge-base "$BASE_REF" HEAD`, and
+            review only the cumulative branch commits and diff after that merge-base.
+          - Never diff directly against an outdated default-branch tip.
+          - Read every changed file in full and inspect relevant callers, interfaces,
+            tests, and git blame context.
+          - Report issues only on code modified by this changeset, using the rest of the
+            repository only as context.
+
+          Review architectural fit, state and data modeling, security, correctness,
+          concurrency, performance, resource lifetime, and maintainability. Ignore
+          pre-existing issues, intentional task behavior, lint-only failures, pedantic
+          preferences, and vague requests for more tests.
+
+          Report only findings with at least 80% confidence. Use these sections and omit
+          empty ones:
+
+          ## BLOCKER
+
+          Must be fixed before publication: architectural boundary violations,
+          security vulnerabilities, data-loss risks, crashes, or broken behavior.
+
+          ## SUGGESTION
+
+          Concrete non-blocking architecture, performance, maintainability, or targeted
+          test improvements.
+
+          Every finding must include file and line, what is wrong, why it matters, and
+          how to fix it.
+
+          If BLOCKER findings exist:
+
+          1. Discover get_task_plan_kandev and update_task_plan_kandev.
+          2. Append a review-fix phase containing the exact blocker findings to the
+             authoritative Kandev task plan.
+          3. Mirror the resulting plan exactly to docs/plans/<task-id>.md and use ggs to
+             commit only that plan update.
+          4. Discover the available Kandev task-lifecycle move tool and move this task to In Progress
+             as the final action of the review turn.
+          5. Do not open a pull or merge request and do not call
+             step_complete_kandev.
+
+          If there are no BLOCKER findings, SUGGESTION findings do not prevent
+          publication:
+
+          1. Load ggs and follow its open-change-request workflow.
+          2. Detect an existing change request for the current branch and reuse it rather
+             than creating a duplicate.
+          3. Open or confirm exactly one change request in ready for review state. Never
+             create a draft.
+          4. For GitHub, use the connected Codex GitHub integration. Never use the GitHub CLI (`gh`). For another provider, follow ggs provider routing.
+          5. If no supported provider integration is available or publication fails,
+             report the blocker and remain in Review.
+          6. Confirm the change-request URL, base branch, head branch, ready state, and
+             current checks.
+          7. Discover and call step_complete_kandev with the verdict, non-blocking
+             suggestions, verification summary, and confirmed URL. This signal advances
+             the task to Done.
+        events:
+          on_enter:
+            - type: reset_agent_context
+            - type: auto_start_agent
+          on_turn_complete:
+            - type: move_to_step
+              config:
+                step_position: 4
+        is_start_step: false
+        show_in_command_panel: true
+        allow_manual_move: true
+        auto_advance_requires_signal: true
+        cancel_triggers_turn_complete: false
+
+      - name: Done
+        position: 4
+        color: bg-green-500
+        events: {}
+        is_start_step: false
+        show_in_command_panel: false
+        allow_manual_move: true
+        auto_advance_requires_signal: false
+        cancel_triggers_turn_complete: false
