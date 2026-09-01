@@ -97,7 +97,7 @@ class WorkflowDefinitionTests(unittest.TestCase):
         self.assertNotIn("prompt", step)
 
     def test_refinement_prompt_contains_required_contracts(self):
-        prompt = self.steps["Refinement"]["prompt"]
+        prompt = " ".join(self.steps["Refinement"]["prompt"].split())
         for text in (
             "{{task_prompt}}",
             "Do not modify production code",
@@ -128,7 +128,7 @@ class WorkflowDefinitionTests(unittest.TestCase):
             self.assertIn(text, prompt)
 
     def test_review_prompt_contains_required_contracts(self):
-        prompt = self.steps["Review"]["prompt"]
+        prompt = " ".join(self.steps["Review"]["prompt"].split())
         for text in (
             "BLOCKER",
             "SUGGESTION",

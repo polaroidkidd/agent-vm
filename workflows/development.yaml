@@ -82,7 +82,8 @@ workflows:
           - Which assumptions need to be true in order for your plan to be successful?
           - Open questions
 
-          The task must remain awaiting human approval. Do not call `step_complete_kandev`; a manual move to In Progress is the approval signal.
+          The task must remain awaiting human approval. Do not call
+          `step_complete_kandev`; a manual move to In Progress is the approval signal.
         events:
           on_enter:
             - type: reset_agent_context
@@ -200,7 +201,8 @@ workflows:
              than creating a duplicate.
           3. Open or confirm exactly one change request in ready for review state. Never
              create a draft.
-          4. For GitHub, use the connected Codex GitHub integration. Never use the GitHub CLI (`gh`). For another provider, follow ggs provider routing.
+          4. For GitHub, use the connected Codex GitHub integration. Never use the
+             GitHub CLI (`gh`). For another provider, follow ggs provider routing.
           5. If no supported provider integration is available or publication fails,
              report the blocker and remain in Review.
           6. Confirm the change-request URL, base branch, head branch, ready state, and
