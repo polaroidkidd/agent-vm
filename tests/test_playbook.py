@@ -229,6 +229,12 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("state: started", service)
         self.assertIn("tags: [base, docker]", service)
 
+    def test_provision_installs_github_cli(self):
+        packages = self.playbook.split("- name: Install base packages", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn("- gh", packages)
+
     def test_python_tooling_is_provisioned_for_agent_and_workloads(self):
         install = self.playbook.split("- name: Install Python package tooling", 1)[1].split(
             "\n\n", 1

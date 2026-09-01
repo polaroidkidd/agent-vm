@@ -24,6 +24,7 @@
           - ca-certificates
           - curl
           - git
+          - gh
           - jq
           - openssh-server
           - python3

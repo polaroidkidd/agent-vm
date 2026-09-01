@@ -1,6 +1,6 @@
 # Agent VM
 
-This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, PR-Agent, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides Docker Engine with Buildx and Docker Compose for agent workloads.
+This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, PR-Agent, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides GitHub CLI plus Docker Engine with Buildx and Docker Compose for agent workloads.
 
 Model requests follow one enforced path:
 
@@ -327,6 +327,7 @@ The `agent` console password comes from `guest.console_agent_password` in the ig
 - Services: `sudo systemctl status docker kandev pr-agent bifrost cliproxyapi netbird`
 - Logs: `sudo journalctl -u <service> -n 200 --no-pager`
 - NetBird: `sudo netbird status` and `ip addr show wt0`
+- GitHub CLI: `gh --version`
 - Docker: `docker version`, `docker compose version`, and `docker info`
 - Python tooling: `pip --version`, `pipx --version`, and `uv --version`
 - Firewall: `sudo ufw status verbose`

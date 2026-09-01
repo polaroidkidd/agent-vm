@@ -40,6 +40,8 @@ class DoctorRunner:
             return subprocess.CompletedProcess(args, 0, '{"data":[{"id":"gpt-test"}]}', "")
         if command == "pi --version 2>&1":
             return subprocess.CompletedProcess(args, 0, "0.84.2\n", "")
+        if command == "gh --version 2>&1":
+            return subprocess.CompletedProcess(args, 0, "gh version 2.45.0 (2024-04-30)\n", "")
         if command == "pip --version 2>&1":
             return subprocess.CompletedProcess(args, 0, "pip 24.0 from /usr/lib/python3/dist-packages/pip (python 3.12)\n", "")
         if command == "pipx --version 2>&1":
@@ -79,7 +81,7 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual("failed", docker.status)
         self.assertEqual("agent cannot access the Docker daemon", docker.detail)
 
-    def test_doctor_verifies_python_tooling(self):
+    def test_doctor_verifies_cli_tooling(self):
         runner = DoctorRunner()
         config = SimpleNamespace(
             guest={"user": "agent"},
@@ -90,6 +92,7 @@ class DoctorTests(unittest.TestCase):
         checks = run_doctor(runner, config, state, "192.0.2.1")
         by_name = {check.name: check for check in checks}
 
+        self.assertEqual("gh version 2.45.0 (2024-04-30)", by_name["tool:gh"].detail)
         self.assertIn("pip 24.0", by_name["tool:pip"].detail)
         self.assertEqual("ready", by_name["tool:pipx"].status)
         self.assertEqual("uv 0.12.7", by_name["tool:uv"].detail)

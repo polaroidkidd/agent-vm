@@ -110,7 +110,7 @@ def run_doctor(
         "ready" if docker.returncode == 0 and bool(docker_version) else "failed",
         f"Docker Engine {docker_version}" if docker_version else "agent cannot access the Docker daemon",
     ))
-    for executable in ("pip", "pipx", "uv"):
+    for executable in ("gh", "pip", "pipx", "uv"):
         result = _remote(runner, config, state, address, f"{executable} --version 2>&1")
         detail = result.stdout.strip()
         checks.append(Check(
