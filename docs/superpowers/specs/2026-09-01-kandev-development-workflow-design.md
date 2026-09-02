@@ -156,22 +156,31 @@ The implementation prompt must:
 
 The review prompt must:
 
-1. Determine the review range from uncommitted changes or the merge base with the
-   detected default branch.
-2. Read each changed file and relevant callers, interfaces, tests, and blame context.
-3. Report only issues introduced by the changeset with at least 80 percent confidence.
-4. Classify findings as `BLOCKER` or `SUGGESTION`; suggestions are non-blocking.
-5. Include file and line, impact, and a concrete fix for every finding.
-6. Never modify production code while reviewing.
-7. When blockers exist, append a review-fix phase containing the exact blockers to the
+1. Load `ggs`, read the authoritative task plan, and resolve the intended
+   change-request target from an existing change request, an explicit approved-plan or
+   task target, or user confirmation. The remote default is not a substitute for a
+   confirmed target.
+2. Refresh the target's remote-tracking ref and always review the merge-base-to-HEAD
+   committed range, even when the worktree is dirty.
+3. Separately inspect staged, unstaged, and untracked changes; union task-related
+   contents with the committed review set while preserving and excluding unrelated
+   working-tree changes.
+4. Treat intended task changes outside HEAD as publication blockers because they are
+   absent from the pushed change-request branch.
+5. Read each changed file and relevant callers, interfaces, tests, and blame context.
+6. Report only issues introduced by the changeset with at least 80 percent confidence.
+7. Classify findings as `BLOCKER` or `SUGGESTION`; suggestions are non-blocking.
+8. Include file and line, impact, and a concrete fix for every finding.
+9. Never modify production code while reviewing.
+10. When blockers exist, append a review-fix phase containing the exact blockers to the
    shared Kandev task plan, mirror it to the Markdown plan, commit only that plan update
    with `ggs`, and use the available Kandev task lifecycle tool to move the task to In
    Progress. Do not emit the completion signal or open a change request.
-8. When no blockers exist, use `ggs` and the connected hosting-provider integration to
+11. When no blockers exist, use `ggs` and the connected hosting-provider integration to
    open a ready-for-review pull or merge request. Never use PR-Agent or create a draft.
-9. If publication fails or no supported provider integration is available, remain in
-   Review and report the blocker.
-10. After confirming the ready change request and its URL, call
+12. If target resolution, target refresh, publication, or provider access fails, remain
+    in Review and report the blocker.
+13. After confirming the ready change request and its URL, call
     `step_complete_kandev` with a concise review and publication summary.
 
 For GitHub, `ggs` must use the connected Codex GitHub integration and must never invoke
@@ -226,6 +235,11 @@ the GitHub CLI. Other providers follow the provider routing defined by `ggs`.
   the explicit completion signal.
 - Review starts with a fresh context and returns blockers to In Progress with a
   persisted handoff.
+- Review always covers the confirmed target's merge-base-to-HEAD diff, even when
+  unrelated worktree changes exist, and includes intended staged, unstaged, or
+  untracked contents.
+- A missing or ambiguous target and intended task changes outside HEAD prevent
+  publication.
 - Suggestions alone do not prevent publication.
 - A clean review opens exactly one ready-for-review change request through `ggs` and
   then advances to Done.

@@ -133,7 +133,15 @@ class WorkflowDefinitionTests(unittest.TestCase):
             "BLOCKER",
             "SUGGESTION",
             "80%",
+            "intended change-request target branch",
+            "Never substitute the remote default branch",
             "merge-base",
+            "git diff --name-status",
+            "regardless of whether the worktree is dirty",
+            "git diff --cached",
+            "git ls-files --others --exclude-standard",
+            "Union the intended task-related paths",
+            "Any intended task change outside HEAD is a publication blocker",
             "update_task_plan_kandev",
             "docs/plans/<task-id>.md",
             "move this task to In Progress",
@@ -144,6 +152,8 @@ class WorkflowDefinitionTests(unittest.TestCase):
             "step_complete_kandev",
         ):
             self.assertIn(text, prompt)
+        self.assertNotIn("If the worktree is clean", prompt)
+        self.assertLess(prompt.index("merge-base"), prompt.index("git diff --cached"))
 
     def test_workflow_has_no_pr_agent_integration(self):
         self.assertNotIn("pr-agent", WORKFLOW_PATH.read_text(encoding="utf-8").lower())

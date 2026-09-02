@@ -50,11 +50,18 @@ Smoke-test the state machine in the disposable workspace:
    does not ask for plan approval again.
 5. In Progress remains in place without `step_complete_kandev`; a valid completion
    signal moves it to Review.
-6. Review blockers are written into both plan representations before a move back to
-   In Progress.
-7. Review remains in place if change-request publication fails.
-8. A clean Review with a confirmed ready change request signals Done.
-9. A message in Done does not move or restart the task.
+6. Review a branch whose confirmed change-request target is not the remote default while
+   an unrelated file is dirty. Confirm Review covers the target's merge-base-to-HEAD
+   diff and does not substitute or include the unrelated file.
+7. Add an intended staged, unstaged, or untracked task change. Confirm it is reviewed,
+   reported as a publication blocker, persisted in both plan representations, and moved
+   back to In Progress.
+8. Other Review blockers are written into both plan representations before a move back
+   to In Progress.
+9. Review remains in place if target resolution, target refresh, or change-request
+   publication fails.
+10. A clean Review with a confirmed ready change request signals Done.
+11. A message in Done does not move or restart the task.
 
 Use a throwaway repository for steps that write plans or implementation commits. Use
 the real connected hosting integration only for the final ready-change-request path;

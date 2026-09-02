@@ -145,16 +145,35 @@ workflows:
         position: 3
         color: bg-yellow-500
         prompt: |-
-          Review the changed files in the current Git worktree. Do not modify production
-          code during review.
+          Review the actual proposed change-request changes in the current Git worktree.
+          Do not modify production code during review.
 
           Determine the review range:
 
-          - If there are uncommitted or staged changes, review those changed files.
-          - If the worktree is clean, detect the remote default branch, set BASE_REF to
-            its remote-tracking ref, compute `git merge-base "$BASE_REF" HEAD`, and
-            review only the cumulative branch commits and diff after that merge-base.
-          - Never diff directly against an outdated default-branch tip.
+          1. Load ggs, discover and call get_task_plan_kandev, and read the complete
+             approved task plan. Resolve the intended change-request target branch from
+             an existing change request for the current branch, an explicit target in the
+             approved task plan or task context, or user confirmation. Never substitute
+             the remote default branch merely because no change request exists. If the
+             target cannot be confirmed, report the blocker and remain in Review.
+          2. Identify the target branch's remote, refresh its remote-tracking ref, and set
+             BASE_REF to that ref. If it cannot be refreshed, report the blocker and
+             remain in Review.
+          3. Set MERGE_BASE to `git merge-base "$BASE_REF" HEAD`. Always inspect
+             `git diff "$MERGE_BASE" HEAD` and
+             `git diff --name-status "$MERGE_BASE" HEAD` for the cumulative committed
+             range, regardless of whether the worktree is dirty. Never diff directly
+             against the target-branch tip as the review range.
+          4. Separately inspect staged changes with `git diff --cached`, unstaged changes
+             with `git diff`, and untracked files with
+             `git ls-files --others --exclude-standard`.
+          5. Classify those working-tree changes against the approved task. Union the
+             intended task-related paths and contents with the committed branch review
+             set. Preserve and exclude unrelated working-tree changes; they must never
+             suppress review of the committed range.
+          6. Review any intended working-tree contents, then report them as a BLOCKER.
+             Any intended task change outside HEAD is a publication blocker because it
+             is absent from the pushed change-request branch.
           - Read every changed file in full and inspect relevant callers, interfaces,
             tests, and git blame context.
           - Report issues only on code modified by this changeset, using the rest of the
