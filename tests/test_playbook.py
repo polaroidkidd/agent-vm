@@ -34,9 +34,20 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("name: nodejs", removal)
         self.assertIn("state: absent", removal)
 
+        archive = self.playbook.split("- name: Download pinned NVM release archive", 1)[1].split(
+            "\n\n", 1
+        )[0]
+        self.assertIn(
+            "https://github.com/nvm-sh/nvm/archive/refs/tags/{{ services.nvm.version }}.tar.gz",
+            archive,
+        )
+        self.assertNotIn("GIT_CONFIG_GLOBAL", archive)
+
         nvm = self.playbook.split("- name: Install pinned NVM", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("repo: https://github.com/nvm-sh/nvm.git", nvm)
-        self.assertIn('version: "{{ services.nvm.version }}"', nvm)
+        self.assertIn("ansible.builtin.unarchive", nvm)
+        self.assertIn("remote_src: true", nvm)
+        self.assertIn("--strip-components=1", nvm)
+        self.assertIn('.agent-vm-{{ services.nvm.version }}', nvm)
         self.assertIn('become_user: "{{ agent_user }}"', nvm)
 
         node = self.playbook.split("- name: Install configured Node.js with NVM", 1)[1].split(
