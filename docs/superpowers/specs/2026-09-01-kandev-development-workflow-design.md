@@ -74,11 +74,19 @@ Kandev Workflow Sync will read the `workflows` directory from the configured bra
 `polaroidkidd/agent-vm`. The synced definition is authoritative and intentionally
 read-only in Kandev's workflow editor.
 
+`services.kandev.workflow_sync` in the private agent-vm configuration declares the
+target workspace, repository, branch, directory, polling interval, and polling state.
+Normal provisioning idempotently saves that configuration after Kandev starts. The
+separate `configure-kandev-workflow` command forces the first reconciliation after the
+workspace GitHub automation connection exists and rejects errors or warnings. Doctor
+checks the same stored configuration and last-sync status.
+
 Migration must preserve the existing manual workflow and its tasks:
 
 1. Validate the synced workflow in a disposable Kandev workspace.
 2. Rename the current manual workflow to `Development (legacy)`.
-3. Configure Workflow Sync so it creates the synced `Development` workflow.
+3. Run the declarative Workflow Sync configurator so it creates the synced
+   `Development` workflow.
 4. Use the synced workflow for new tasks.
 5. Leave the legacy workflow in place until its tasks have drained or been moved safely.
 6. Delete the legacy workflow only through a separately approved cleanup action.
@@ -216,6 +224,8 @@ the GitHub CLI. Other providers follow the provider routing defined by `ggs`.
   fallback.
 - The Workflow Sync integration can read the repository, configured branch, and
   `workflows` directory.
+- The private agent-vm configuration names exactly one target workspace and contains
+  the expected GitHub Workflow Sync fields.
 - Task IDs are safe to use as Markdown filenames.
 - The repository permits a `docs/plans` directory and plan-only commits.
 
@@ -260,6 +270,8 @@ the GitHub CLI. Other providers follow the provider routing defined by `ggs`.
 - Assert only recognized portable event types and valid step positions are used.
 - Assert prompts contain the required skill, plan, Git, review, and publication guards.
 - Assert the workflow contains no PR-Agent references.
+- Validate the config-to-Ansible Workflow Sync path, idempotent API reconciliation,
+  clean forced-sync result, and doctor status parser.
 
 ### Kandev integration validation
 

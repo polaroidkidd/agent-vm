@@ -8,6 +8,8 @@ from agent_vm.doctor import (
     _has_models,
     _kandev_pi_capabilities,
     _kandev_pi_discovery,
+    _kandev_workflow_sync_command,
+    _kandev_workflow_sync_status,
     run_doctor,
 )
 
@@ -36,6 +38,13 @@ class DoctorRunner:
             return subprocess.CompletedProcess(args, 0, output, "")
         if "/api/v1/agent-models/pi-acp" in command:
             return subprocess.CompletedProcess(args, 0, '{"status":"ok","models":[{"id":"gpt-test"}]}', "")
+        if "agent-vm-configure-kandev-workflow-sync" in command:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                '{"status":"ready","detail":"last workflow sync succeeded without warnings"}',
+                "",
+            )
         if "/v1/models" in command:
             return subprocess.CompletedProcess(args, 0, '{"data":[{"id":"gpt-test"}]}', "")
         if command == "pi --version 2>&1":
@@ -138,6 +147,71 @@ class DoctorTests(unittest.TestCase):
         ):
             with self.subTest(response=response):
                 self.assertFalse(_kandev_pi_discovery(response)[0])
+
+    def test_kandev_workflow_sync_status_requires_clean_success(self):
+        self.assertEqual(
+            ("ready", "last workflow sync succeeded without warnings"),
+            _kandev_workflow_sync_status(
+                '{"status":"ready","detail":"last workflow sync succeeded without warnings"}'
+            ),
+        )
+        for response in (
+            '{"status":"unknown","detail":"no"}',
+            '{"status":"ready"}',
+            "not json",
+        ):
+            with self.subTest(response=response):
+                self.assertEqual("failed", _kandev_workflow_sync_status(response)[0])
+
+    def test_kandev_workflow_sync_command_uses_declarative_configuration(self):
+        config = SimpleNamespace(
+            ports={"kandev": 38429},
+            kandev_workflow_sync={
+                "provider": "github",
+                "workspace_name": "Default",
+                "repo_owner": "polaroidkidd",
+                "repo_name": "agent-vm",
+                "branch": "master",
+                "path": "workflows",
+                "interval_seconds": 300,
+                "poll_enabled": True,
+            },
+        )
+
+        command = _kandev_workflow_sync_command(config, mode="check")
+
+        self.assertIn("--workspace-name Default", command)
+        self.assertIn("--repo-owner polaroidkidd", command)
+        self.assertIn("--branch master", command)
+        self.assertIn("--check", command)
+
+    def test_doctor_verifies_kandev_workflow_sync(self):
+        runner = DoctorRunner()
+        config = SimpleNamespace(
+            guest={"user": "agent"},
+            ports={"kandev": 38429, "bifrost": 8080, "cliproxyapi": 8317},
+            kandev_workflow_sync={
+                "provider": "github",
+                "workspace_name": "Default",
+                "repo_owner": "polaroidkidd",
+                "repo_name": "agent-vm",
+                "branch": "master",
+                "path": "workflows",
+                "interval_seconds": 300,
+                "poll_enabled": True,
+            },
+        )
+        state = SimpleNamespace(directory=Path("/tmp/agent-vm-doctor-test"))
+
+        checks = run_doctor(runner, config, state, "192.0.2.1")
+        workflow_sync = next(
+            check
+            for check in checks
+            if check.name == "integration:kandev-workflow-sync"
+        )
+
+        self.assertEqual("ready", workflow_sync.status)
+        self.assertIn("without warnings", workflow_sync.detail)
 
 
 if __name__ == "__main__":

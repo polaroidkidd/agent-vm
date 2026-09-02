@@ -68,6 +68,7 @@ class Ansible:
             "node_major": self.config.services["node_major"],
             "ports": self.config.ports,
             "services": self.config.services,
+            "kandev_workflow_sync": self.config.kandev_workflow_sync,
             "pr_agent": self.config.pr_agent,
             "pi_skills": self.config.pi_skills,
             "versions": versions,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import dataclass, asdict
 
 from .config import Config
@@ -78,6 +79,55 @@ def _kandev_pi_discovery(output: str) -> tuple[bool, str]:
         return False, "Kandev did not discover the installed Pi agent"
     matched_path = str(pi.get("matched_path") or "Pi executable")
     return True, f"Kandev discovered Pi at {matched_path}"
+
+
+def _kandev_workflow_sync_status(output: str) -> tuple[str, str]:
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return "failed", "Kandev Workflow Sync check returned invalid JSON"
+    if not isinstance(data, dict) or data.get("status") not in {
+        "ready",
+        "pending",
+        "failed",
+    }:
+        return "failed", "Kandev Workflow Sync check returned an invalid status"
+    detail = data.get("detail")
+    if not isinstance(detail, str) or not detail:
+        return "failed", "Kandev Workflow Sync did not provide status detail"
+    return data["status"], detail
+
+
+def _kandev_workflow_sync_command(config: Config, *, mode: str) -> str:
+    workflow_sync = config.kandev_workflow_sync
+    if workflow_sync is None:
+        raise ValueError("Kandev Workflow Sync is disabled")
+    command = [
+        "/usr/local/bin/agent-vm-configure-kandev-workflow-sync",
+        "--base-url",
+        f"http://127.0.0.1:{config.ports['kandev']}",
+        "--workspace-name",
+        workflow_sync["workspace_name"],
+        "--provider",
+        workflow_sync["provider"],
+        "--repo-owner",
+        workflow_sync["repo_owner"],
+        "--repo-name",
+        workflow_sync["repo_name"],
+        "--branch",
+        workflow_sync["branch"],
+        "--path",
+        workflow_sync["path"],
+        "--interval-seconds",
+        str(workflow_sync["interval_seconds"]),
+        "--poll-enabled",
+        str(workflow_sync["poll_enabled"]).lower(),
+    ]
+    if mode not in {"apply", "check", "sync"}:
+        raise ValueError(f"unsupported Kandev Workflow Sync mode: {mode}")
+    if mode != "apply":
+        command.append(f"--{mode}")
+    return shlex.join(command)
 
 
 def run_doctor(
@@ -235,6 +285,27 @@ def run_doctor(
         "ready" if kandev_pi_ready else "failed",
         kandev_pi_detail,
     ))
+    if getattr(config, "kandev_workflow_sync", None):
+        workflow_sync = _remote(
+            runner,
+            config,
+            state,
+            address,
+            _kandev_workflow_sync_command(config, mode="check"),
+        )
+        workflow_sync_status, workflow_sync_detail = _kandev_workflow_sync_status(
+            workflow_sync.stdout
+        )
+        if workflow_sync.returncode != 0 and workflow_sync_status == "ready":
+            workflow_sync_status = "failed"
+            workflow_sync_detail = "Kandev Workflow Sync check command failed"
+        checks.append(
+            Check(
+                "integration:kandev-workflow-sync",
+                workflow_sync_status,
+                workflow_sync_detail,
+            )
+        )
     if live_model_test:
         model_test = _remote(
             runner,

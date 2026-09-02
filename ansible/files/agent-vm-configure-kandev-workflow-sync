@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+from typing import Callable
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+CONFIG_FIELDS = (
+    "provider",
+    "repo_owner",
+    "repo_name",
+    "branch",
+    "path",
+    "interval_seconds",
+    "poll_enabled",
+)
+
+
+def request_json(
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+) -> tuple[int, object | None]:
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    request = Request(
+        f"{base_url.rstrip('/')}{path}",
+        data=body,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            status = response.status
+            response_body = response.read()
+    except HTTPError as exc:
+        response_body = exc.read().decode("utf-8", errors="replace").strip()
+        detail = response_body or exc.reason
+        raise ValueError(
+            f"Kandev API {method} {path} returned HTTP {exc.code}: {detail}"
+        ) from exc
+    except URLError as exc:
+        raise ValueError(f"Kandev API {method} {path} failed: {exc.reason}") from exc
+
+    if status == 204 or not response_body:
+        return status, None
+    try:
+        return status, json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Kandev API {method} {path} returned invalid JSON"
+        ) from exc
+
+
+def workspace_id(payload: object, workspace_name: str) -> str:
+    if isinstance(payload, list):
+        workspaces = payload
+    elif isinstance(payload, dict):
+        workspaces = payload.get("workspaces", payload.get("data"))
+    else:
+        workspaces = None
+    if not isinstance(workspaces, list):
+        raise ValueError("Kandev returned an invalid workspace list")
+    matches = [
+        entry
+        for entry in workspaces
+        if isinstance(entry, dict) and entry.get("name") == workspace_name
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected exactly one Kandev workspace named {workspace_name!r}; "
+            f"found {len(matches)}"
+        )
+    identifier = matches[0].get("id")
+    if not isinstance(identifier, str) or not identifier:
+        raise ValueError(f"Kandev workspace {workspace_name!r} has no valid id")
+    return identifier
+
+
+def config_matches(current: object, desired: dict) -> bool:
+    return isinstance(current, dict) and all(
+        current.get(field) == desired[field] for field in CONFIG_FIELDS
+    )
+
+
+def sync_status(current: object, desired: dict) -> tuple[str, str]:
+    if not config_matches(current, desired):
+        return "failed", "workflow sync configuration differs from declarative config"
+    assert isinstance(current, dict)
+    error = str(current.get("last_error") or "").strip()
+    warnings = current.get("last_warnings")
+    warning_count = len(warnings) if isinstance(warnings, list) else int(bool(warnings))
+    if current.get("last_ok") is True and not error and warning_count == 0:
+        return "ready", "last workflow sync succeeded without warnings"
+    if current.get("last_synced_at"):
+        detail = error or f"last workflow sync returned {warning_count} warning(s)"
+        return "failed", detail
+    return (
+        "pending",
+        "configuration saved; connect the workspace GitHub integration and run "
+        "configure-kandev-workflow",
+    )
+
+
+Requester = Callable[..., tuple[int, object | None]]
+
+
+def reconcile(
+    base_url: str,
+    workspace_name: str,
+    desired: dict,
+    *,
+    mode: str,
+    requester: Requester = request_json,
+) -> tuple[dict, bool]:
+    _, workspace_payload = requester(base_url, "/api/v1/workspaces")
+    identifier = workspace_id(workspace_payload, workspace_name)
+    query = urlencode({"workspace_id": identifier})
+    config_path = f"/api/v1/workflow-sync/config?{query}"
+    _, current = requester(base_url, config_path)
+    changed = False
+
+    if mode != "check" and not config_matches(current, desired):
+        _, current = requester(
+            base_url,
+            config_path,
+            method="POST",
+            payload=desired,
+        )
+        changed = True
+
+    sync_error = ""
+    if mode == "sync":
+        _, sync_response = requester(
+            base_url,
+            f"/api/v1/workflow-sync/sync?{query}",
+            method="POST",
+        )
+        if not isinstance(sync_response, dict):
+            raise ValueError("Kandev returned an invalid workflow sync response")
+        sync_error = str(sync_response.get("error") or "").strip()
+        current = sync_response.get("config", current)
+
+    status, detail = sync_status(current, desired)
+    if sync_error:
+        status, detail = "failed", sync_error
+    result = {
+        "changed": changed,
+        "status": status,
+        "detail": detail,
+        "workspace_name": workspace_name,
+    }
+    if mode == "apply":
+        return result, True
+    return result, status == "ready"
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        description="Configure and verify Kandev GitHub Workflow Sync"
+    )
+    result.add_argument("--base-url", required=True)
+    result.add_argument("--workspace-name", required=True)
+    result.add_argument("--provider", choices=("github",), required=True)
+    result.add_argument("--repo-owner", required=True)
+    result.add_argument("--repo-name", required=True)
+    result.add_argument("--branch", required=True)
+    result.add_argument("--path", required=True)
+    result.add_argument("--interval-seconds", type=int, required=True)
+    result.add_argument("--poll-enabled", choices=("true", "false"), required=True)
+    mode = result.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--sync", action="store_true")
+    return result
+
+
+def main() -> int:
+    args = parser().parse_args()
+    desired = {
+        "provider": args.provider,
+        "repo_owner": args.repo_owner,
+        "repo_name": args.repo_name,
+        "branch": args.branch,
+        "path": args.path,
+        "interval_seconds": args.interval_seconds,
+        "poll_enabled": args.poll_enabled == "true",
+    }
+    mode = "check" if args.check else "sync" if args.sync else "apply"
+    try:
+        result, ok = reconcile(
+            args.base_url,
+            args.workspace_name,
+            desired,
+            mode=mode,
+        )
+    except ValueError as exc:
+        print(json.dumps({"changed": False, "status": "failed", "detail": str(exc)}))
+        return 1
+    print(json.dumps(result, sort_keys=True))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

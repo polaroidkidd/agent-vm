@@ -808,6 +808,16 @@
         mode: "0755"
       tags: [services, pi, bifrost]
 
+    - name: Install Kandev Workflow Sync configurator
+      ansible.builtin.copy:
+        src: files/agent-vm-configure-kandev-workflow-sync
+        dest: /usr/local/bin/agent-vm-configure-kandev-workflow-sync
+        owner: root
+        group: root
+        mode: "0755"
+      when: kandev_workflow_sync is not none
+      tags: [services, kandev, kandev-workflow]
+
     - name: Install Oh My Zsh and plugins
       ansible.builtin.include_tasks: plugins.yml
       tags: [shell]
@@ -964,6 +974,46 @@
         state: started
         daemon_reload: true
       tags: [services, kandev]
+
+    - name: Wait for Kandev before configuring Workflow Sync
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ports.kandev }}/health"
+        method: GET
+        status_code: 200
+      register: kandev_workflow_sync_health
+      until: kandev_workflow_sync_health.status == 200
+      retries: 30
+      delay: 2
+      when: kandev_workflow_sync is not none
+      tags: [services, kandev, kandev-workflow]
+
+    - name: Apply declarative Kandev Workflow Sync configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/agent-vm-configure-kandev-workflow-sync
+          - --base-url
+          - "http://127.0.0.1:{{ ports.kandev }}"
+          - --workspace-name
+          - "{{ kandev_workflow_sync.workspace_name }}"
+          - --provider
+          - "{{ kandev_workflow_sync.provider }}"
+          - --repo-owner
+          - "{{ kandev_workflow_sync.repo_owner }}"
+          - --repo-name
+          - "{{ kandev_workflow_sync.repo_name }}"
+          - --branch
+          - "{{ kandev_workflow_sync.branch }}"
+          - --path
+          - "{{ kandev_workflow_sync.path }}"
+          - --interval-seconds
+          - "{{ kandev_workflow_sync.interval_seconds }}"
+          - --poll-enabled
+          - "{{ kandev_workflow_sync.poll_enabled | ternary('true', 'false') }}"
+      become_user: "{{ agent_user }}"
+      register: kandev_workflow_sync_apply
+      changed_when: "'\"changed\": true' in kandev_workflow_sync_apply.stdout"
+      when: kandev_workflow_sync is not none
+      tags: [services, kandev, kandev-workflow]
 
   handlers:
     - name: Restart ssh

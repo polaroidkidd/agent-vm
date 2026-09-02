@@ -66,6 +66,10 @@ class AnsibleTests(unittest.TestCase):
             )
             self.assertIn("BEGIN PGP PRIVATE KEY BLOCK", values["git_signing_private_key"])
             self.assertEqual("A" * 40, values["git_signing_fingerprint"])
+            self.assertEqual(
+                "polaroidkidd",
+                values["kandev_workflow_sync"]["repo_owner"],
+            )
 
 
 if __name__ == "__main__":

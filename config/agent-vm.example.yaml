@@ -48,6 +48,16 @@ services:
   node_major: 24
   kandev:
     npm_package: kandev
+    workflow_sync:
+      enabled: true
+      provider: github
+      workspace_name: Default
+      repo_owner: polaroidkidd
+      repo_name: agent-vm
+      branch: master
+      path: workflows
+      interval_seconds: 300
+      poll_enabled: true
   pi:
     npm_package: "@earendil-works/pi-coding-agent"
     superpowers_package: "@weiping/pi-superpowers"

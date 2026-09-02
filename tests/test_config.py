@@ -37,7 +37,20 @@ VALID = {
         "nvm": {"version": "v0.40.3"},
         "uv": {"version": "0.12.7"},
         "node_major": 24,
-        "kandev": {"npm_package": "kandev"},
+        "kandev": {
+            "npm_package": "kandev",
+            "workflow_sync": {
+                "enabled": True,
+                "provider": "github",
+                "workspace_name": "Default",
+                "repo_owner": "polaroidkidd",
+                "repo_name": "agent-vm",
+                "branch": "master",
+                "path": "workflows",
+                "interval_seconds": 300,
+                "poll_enabled": True,
+            },
+        },
         "pi": {
             "npm_package": "@earendil-works/pi-coding-agent",
             "superpowers_package": "@weiping/pi-superpowers",
@@ -54,7 +67,52 @@ class ConfigTests(unittest.TestCase):
         return Config(path=Path("config.yaml"), root=Path("/tmp/repo"), raw=copy.deepcopy(raw or VALID))
 
     def test_valid_configuration(self):
-        self.config().validate()
+        config = self.config()
+        config.validate()
+        self.assertEqual(
+            {
+                "provider": "github",
+                "workspace_name": "Default",
+                "repo_owner": "polaroidkidd",
+                "repo_name": "agent-vm",
+                "branch": "master",
+                "path": "workflows",
+                "interval_seconds": 300,
+                "poll_enabled": True,
+            },
+            config.kandev_workflow_sync,
+        )
+
+    def test_kandev_workflow_sync_can_be_disabled(self):
+        raw = copy.deepcopy(VALID)
+        raw["services"]["kandev"]["workflow_sync"] = {"enabled": False}
+        config = self.config(raw)
+
+        config.validate()
+
+        self.assertIsNone(config.kandev_workflow_sync)
+
+    def test_kandev_workflow_sync_is_required(self):
+        raw = copy.deepcopy(VALID)
+        del raw["services"]["kandev"]["workflow_sync"]
+        with self.assertRaisesRegex(AgentVMError, "services.kandev.workflow_sync"):
+            self.config(raw).validate()
+
+    def test_kandev_workflow_sync_rejects_unsafe_repository_values(self):
+        cases = (
+            ("provider", "gitlab", "provider must be github"),
+            ("repo_owner", "owner/name", "cannot contain slashes or spaces"),
+            ("repo_name", "agent vm", "cannot contain slashes or spaces"),
+            ("path", "../workflows", "safe repository directory"),
+            ("interval_seconds", 59, "between 60 and 2592000"),
+            ("poll_enabled", "yes", "must be a boolean"),
+        )
+        for key, value, message in cases:
+            with self.subTest(key=key):
+                raw = copy.deepcopy(VALID)
+                raw["services"]["kandev"]["workflow_sync"][key] = value
+                with self.assertRaisesRegex(AgentVMError, message):
+                    self.config(raw).validate()
 
     def test_resources_must_be_positive_absolute_values(self):
         raw = copy.deepcopy(VALID)

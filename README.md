@@ -73,6 +73,18 @@ Run every command from the repository root.
      uv:
        version: 0.12.7
      node_major: 24
+     kandev:
+       npm_package: kandev
+       workflow_sync:
+         enabled: true
+         provider: github
+         workspace_name: Default
+         repo_owner: polaroidkidd
+         repo_name: agent-vm
+         branch: master
+         path: workflows
+         interval_seconds: 300
+         poll_enabled: true
      pi:
        npm_package: "@earendil-works/pi-coding-agent"
        superpowers_package: "@weiping/pi-superpowers"
@@ -92,6 +104,13 @@ Run every command from the repository root.
    may be one-off or reusable. A rebuild creates a new NetBird peer and therefore
    needs another usable key. To omit PR-Agent, set `services.pr_agent.enabled` to
    `false`; its port and GitHub App values are then not required.
+
+   `services.kandev.workflow_sync` is the declarative source for the active
+   workspace's GitHub Workflow Sync configuration. Set `enabled: false` only when
+   this VM should not manage Workflow Sync. The named workspace must exist exactly
+   once. `create`, `provision`, and `update` save the configuration but do not force
+   the initial repository read because a fresh Kandev instance has no workspace
+   GitHub authorization yet.
 
    Repository-owned Agent Skills live under `skills/<name>/`. `create`, `provision`,
    and `update` automatically copy every skill there to
@@ -170,7 +189,21 @@ Run every command from the repository root.
    Bifrost, into Pi and refreshes Kandev's model selector. Run it again after
    adding, removing, or reauthenticating a CLIProxyAPI Auth File.
 
-6. Provision the PR-Agent GitHub App service:
+6. In Kandev, connect the named workspace to GitHub using an automation connection
+   that can read `polaroidkidd/agent-vm`. Preserve an existing manual Development
+   workflow by renaming it to `Development (legacy)`, then force and validate the
+   declaratively configured sync:
+
+   ```bash
+   ./agent-vm configure-kandev-workflow
+   ```
+
+   The command requires the configured branch and `workflows` directory to exist
+   remotely. It fails when Kandev reports an error, `last_ok` is false, or any
+   warning is present. This workspace GitHub connection is separate from the VM's
+   Git SSH key and the PR-Agent GitHub App.
+
+7. Provision the PR-Agent GitHub App service:
 
    ```bash
    ./agent-vm configure-pr-agent
@@ -181,10 +214,10 @@ Run every command from the repository root.
    settings restrict automatic behavior to `/review`, disable push-triggered
    runs and draft feedback, and enable PR-Agent restricted mode.
 
-7. Create the three private NetBird Reverse Proxy services and the separate
+8. Create the three private NetBird Reverse Proxy services and the separate
    public PR-Agent webhook route described below.
 
-8. Check the complete installation:
+9. Check the complete installation:
 
    ```bash
    ./agent-vm doctor
@@ -319,6 +352,7 @@ Then open `http://127.0.0.1:8080`, `http://127.0.0.1:8317/management.html`, or
 ./agent-vm status       # VM state, address, and recorded versions
 ./agent-vm doctor       # service and non-billable integration readiness
 ./agent-vm provision    # idempotently reapply recorded versions
+./agent-vm configure-kandev-workflow  # force and verify Workflow Sync
 ./agent-vm update       # resolve and install the latest stable releases
 ```
 
@@ -329,6 +363,11 @@ Changing `services.nvm.version` or `services.node_major` and running `provision`
 applies the explicitly configured NVM or Node.js line.
 Changing `services.uv.version` and running `provision` similarly installs that
 exact `uv` release.
+
+Every full `create`, `provision`, and `update` run also reconciles the configured
+Kandev Workflow Sync fields without forcing a repository read. The background
+poller can sync after the workspace GitHub integration exists; use
+`configure-kandev-workflow` when an immediate, warning-free result is required.
 
 Every full `create`, `provision`, and `update` run installs Ubuntu's Docker
 Engine, Buildx, and Docker Compose packages, starts the Docker daemon, and adds

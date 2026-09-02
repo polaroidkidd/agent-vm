@@ -74,10 +74,11 @@ Workflow Sync never adopts a manual workflow, even when the names match.
 1. Confirm the committed workflow is present on the target branch and passed disposable
    validation.
 2. Rename the current manual workflow to `Development (legacy)`.
-3. Configure the active workspace's Workflow Sync with repository
-   `polaroidkidd/agent-vm`, the protected target branch, directory `workflows`,
-   Auto-sync enabled, and interval `300` seconds.
-4. Save, select **Sync now**, and require a successful status with no warnings.
+3. Confirm `services.kandev.workflow_sync` names the active workspace and configures
+   repository `polaroidkidd/agent-vm`, the protected target branch, directory
+   `workflows`, polling enabled, and interval `300` seconds.
+4. Run `./agent-vm configure-kandev-workflow`. Require a successful result with
+   `last_ok`, no error, and no warnings.
 5. Use the synced `Development` workflow for new tasks.
 6. Keep `Development (legacy)` while it owns tasks. Delete it only after those tasks
    have drained or after a separately reviewed task migration.

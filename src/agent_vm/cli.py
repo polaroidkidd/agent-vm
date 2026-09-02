@@ -8,7 +8,13 @@ from pathlib import Path
 
 from .ansible import Ansible
 from .config import Config
-from .doctor import _kandev_pi_capabilities, print_checks, run_doctor
+from .doctor import (
+    _kandev_pi_capabilities,
+    _kandev_workflow_sync_command,
+    _kandev_workflow_sync_status,
+    print_checks,
+    run_doctor,
+)
 from .errors import AgentVMError
 from .host import validate_host
 from .process import Runner
@@ -35,6 +41,10 @@ def parser() -> argparse.ArgumentParser:
     github.add_argument("--show-only", action="store_true")
     sub.add_parser("configure-cliproxy", help="perform interactive Codex OAuth login")
     sub.add_parser("configure-bifrost", help="reapply and validate Bifrost routing")
+    sub.add_parser(
+        "configure-kandev-workflow",
+        help="force and validate the configured Kandev Workflow Sync",
+    )
     sub.add_parser("configure-pr-agent", help="install and validate the PR-Agent GitHub App service")
     doctor = sub.add_parser("doctor", help="check infrastructure and integrations")
     doctor.add_argument("--json", action="store_true", dest="json_output")
@@ -238,6 +248,24 @@ class App:
         print("PR-Agent is running through Bifrost.")
         print(f"Webhook path: /api/v1/github_webhooks on guest port {self.config.ports['pr_agent']}")
         print(f"Webhook secret: jq -r .pr_agent_webhook_secret {self.state.secrets_path}")
+
+    def configure_kandev_workflow(self) -> None:
+        if not self.config.kandev_workflow_sync:
+            raise AgentVMError(
+                "Kandev Workflow Sync is disabled in services.kandev.workflow_sync"
+            )
+        self._provision(tags=["kandev-workflow"])
+        address, private_key, _, _ = self._existing()
+        result = self.runner.run(
+            self._ssh_args(address, private_key)
+            + [_kandev_workflow_sync_command(self.config, mode="sync")],
+            check=False,
+            capture=True,
+        )
+        status, detail = _kandev_workflow_sync_status(result.stdout)
+        if result.returncode != 0 or status != "ready":
+            raise AgentVMError(f"Kandev Workflow Sync failed: {detail}")
+        print(f"Kandev Workflow Sync is ready: {detail}")
 
     def doctor(self) -> None:
         address, _, _, _ = self._existing()

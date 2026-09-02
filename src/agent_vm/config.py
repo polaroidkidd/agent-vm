@@ -144,6 +144,55 @@ class Config:
         for name in ("kandev", "pi", "bifrost"):
             service = _required(services, name, dict, "services")
             _required(service, "npm_package", str, f"services.{name}")
+        workflow_sync = _required(
+            services["kandev"], "workflow_sync", dict, "services.kandev"
+        )
+        enabled = workflow_sync.get("enabled")
+        if not isinstance(enabled, bool):
+            raise AgentVMError("services.kandev.workflow_sync.enabled must be a boolean")
+        if enabled:
+            if workflow_sync.get("provider") != "github":
+                raise AgentVMError(
+                    "services.kandev.workflow_sync.provider must be github"
+                )
+            for key in ("workspace_name", "repo_owner", "repo_name", "branch", "path"):
+                value = _required(
+                    workflow_sync,
+                    key,
+                    str,
+                    "services.kandev.workflow_sync",
+                )
+                if any(character in value for character in "\r\n\0"):
+                    raise AgentVMError(
+                        f"services.kandev.workflow_sync.{key} must be a single-line string"
+                    )
+            for key in ("repo_owner", "repo_name"):
+                value = workflow_sync[key].strip()
+                if "/" in value or any(character.isspace() for character in value):
+                    raise AgentVMError(
+                        f"services.kandev.workflow_sync.{key} cannot contain slashes or spaces"
+                    )
+            workflow_path = workflow_sync["path"].strip("/")
+            if not workflow_path or any(
+                part in {"", ".", ".."} for part in workflow_path.split("/")
+            ):
+                raise AgentVMError(
+                    "services.kandev.workflow_sync.path must be a safe repository directory"
+                )
+            interval = _required(
+                workflow_sync,
+                "interval_seconds",
+                int,
+                "services.kandev.workflow_sync",
+            )
+            if not 60 <= interval <= 2_592_000:
+                raise AgentVMError(
+                    "services.kandev.workflow_sync.interval_seconds must be between 60 and 2592000"
+                )
+            if not isinstance(workflow_sync.get("poll_enabled"), bool):
+                raise AgentVMError(
+                    "services.kandev.workflow_sync.poll_enabled must be a boolean"
+                )
         if services["pi"]["npm_package"] != "@earendil-works/pi-coding-agent":
             raise AgentVMError(
                 "services.pi.npm_package must be @earendil-works/pi-coding-agent "
@@ -244,6 +293,22 @@ class Config:
     @property
     def services(self) -> dict:
         return self.raw["services"]
+
+    @property
+    def kandev_workflow_sync(self) -> dict | None:
+        workflow_sync = self.services["kandev"]["workflow_sync"]
+        if not workflow_sync["enabled"]:
+            return None
+        return {
+            "provider": workflow_sync["provider"],
+            "workspace_name": workflow_sync["workspace_name"].strip(),
+            "repo_owner": workflow_sync["repo_owner"].strip(),
+            "repo_name": workflow_sync["repo_name"].strip(),
+            "branch": workflow_sync["branch"].strip(),
+            "path": workflow_sync["path"].strip("/"),
+            "interval_seconds": workflow_sync["interval_seconds"],
+            "poll_enabled": workflow_sync["poll_enabled"],
+        }
 
     @property
     def pr_agent(self) -> dict | None:

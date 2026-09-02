@@ -193,6 +193,31 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("agent-vm-sync-pi-models", task)
         self.assertIn("tags: [services, pi, bifrost]", task)
 
+    def test_provision_applies_declarative_kandev_workflow_sync_configuration(self):
+        install = self.playbook.split(
+            "- name: Install Kandev Workflow Sync configurator", 1
+        )[1].split("\n\n", 1)[0]
+        self.assertIn("agent-vm-configure-kandev-workflow-sync", install)
+        self.assertIn("mode: \"0755\"", install)
+        self.assertIn("tags: [services, kandev, kandev-workflow]", install)
+
+        configure = self.playbook.split(
+            "- name: Apply declarative Kandev Workflow Sync configuration", 1
+        )[1].split("\n\n", 1)[0]
+        for argument in (
+            "--workspace-name",
+            "--repo-owner",
+            "--repo-name",
+            "--branch",
+            "--path",
+            "--interval-seconds",
+            "--poll-enabled",
+        ):
+            self.assertIn(argument, configure)
+        self.assertNotIn("--sync", configure)
+        self.assertIn("become_user", configure)
+        self.assertIn("changed_when", configure)
+
     def test_pr_agent_uses_verified_release_and_dedicated_bifrost_key(self):
         for name in (
             "Resolve active NVM Node.js binary",
