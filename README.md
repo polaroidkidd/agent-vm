@@ -1,413 +1,279 @@
 # Agent VM
 
-This repository creates and provisions one disposable Ubuntu Server 24.04 x86-64 VM for agentic development. It runs Kandev, Pi, PR-Agent, Bifrost, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh directly on the guest as native processes, and provides GitHub CLI plus Docker Engine with Buildx and Docker Compose for agent workloads.
+This repository provisions one Ubuntu Server 24.04 VM for Kandev development.
+Kandev, Pi, CLIProxyAPI, NetBird, Zsh, and Oh My Zsh run as native guest processes.
+Docker Engine, Buildx, and Compose support repository workloads; Chromium supports
+repository-pinned Playwright tests.
 
-Model requests follow one enforced path:
+Model requests follow this path:
 
 ```text
-Kandev / Pi / PR-Agent / OpenAI-compatible tools
-                  |
-                  v
-          Bifrost virtual key
-                  |
-                  v
-       CLIProxyAPI internal key
-                  |
-                  v
-          Codex OAuth subscription
+Kandev → Pi → CLIProxyAPI → Codex OAuth subscription
 ```
 
-The CLIProxyAPI bridge is an unofficial compatibility layer. A ChatGPT/Codex subscription is not an OpenAI API account, and this arrangement may be affected by provider compatibility, terms, or account-policy changes.
+Pi uses the `cliproxy` provider and the live CLIProxyAPI model catalog. Bifrost and
+PR-Agent are retired. Full provisioning removes their services, packages,
+configuration, credentials, and guest firewall rules after migrating Pi profiles.
 
 ## Supported platform
 
-- Host: Ubuntu Linux, x86-64, KVM/QEMU, and libvirt.
-- Guest: Ubuntu Server 24.04 LTS, x86-64.
-- Networking: libvirt NAT plus NetBird.
-- `create` verifies that KVM/QEMU, libvirt, `virt-install`, QCOW2 and cloud-image tooling, OpenSSH, OpenSSL, POSIX ACL tooling, Ansible, and PyYAML are available before creating anything. It never invokes a package manager.
-- Hardware virtualization must still be enabled so `/dev/kvm` is available.
-- The repository launcher deliberately uses Ubuntu's `/usr/bin/python3`, so an unrelated Homebrew or virtual-environment Python cannot hide the apt-installed PyYAML module.
+- Host: Ubuntu Linux, x86-64, KVM/QEMU, and system libvirt.
+- Guest: Ubuntu Server 24.04 LTS, x86-64, with libvirt NAT and NetBird.
+- Defaults: 4 vCPUs, 16 GiB RAM, and a 100 GiB sparse QCOW2 disk.
+- Host dependencies: KVM/QEMU, libvirt, `virt-install`, QCOW2/cloud-image tooling,
+  OpenSSH, OpenSSL, POSIX ACL tools, Ansible, and PyYAML. `create` checks these and
+  available resources; it never installs host packages.
+- The launcher uses Ubuntu's `/usr/bin/python3` so other Python environments cannot
+  hide apt-installed PyYAML.
 
-The default VM is 4 vCPUs, 16 GiB RAM, and a 100 GiB sparse QCOW2 disk. All operational input—including NetBird enrollment—is kept in one ignored `config/agent-vm.yaml` file. These resource values are absolute; `create` fails before creating the VM if the host cannot currently satisfy them.
+Run commands from the repository root. This host uses the system libvirt connection:
 
-## First setup: run these commands in order
+```bash
+export LIBVIRT_DEFAULT_URI=qemu:///system
+```
 
-Run every command from the repository root.
+## First setup
 
-1. Create the single ignored configuration file and restrict it:
+1. Copy and protect the configuration:
 
    ```bash
    cp config/agent-vm.example.yaml config/agent-vm.yaml
    chmod 600 config/agent-vm.yaml
    ```
 
-   Review the VM resources and service ports, choose the console recovery password, and fill all three required NetBird values:
+   Fill in NetBird enrollment, Stripe credentials, both console passwords, and the
+   Git identity. Review resource sizes, ports, and the Kandev workspace name. All
+   operational input lives in this ignored file; do not commit it.
 
-   ```yaml
-   NB_HOSTNAME: agent-vm
-   NB_MANAGEMENT_URL: https://netbird.example.com
-   NB_SETUP_KEY: replace-with-the-setup-key
-   STRIPE_API_KEY: replace-with-a-stripe-api-key
-   PR_AGENT_GITHUB_APP_ID: 123456
-   PR_AGENT_GITHUB_PRIVATE_KEY: |-
-     -----BEGIN RSA PRIVATE KEY-----
-     replace-with-the-github-app-private-key
-     -----END RSA PRIVATE KEY-----
-
-   vm:
-     vcpus: 4
-     memory_gib: 16
-     disk_gib: 100
-
-   guest:
-     console_agent_password: replace-with-an-agent-console-password
-     console_root_password: replace-with-a-console-root-password
-     git:
-       sign_commits: true
-       name: Replace With Your Name
-       email: replace-with-your-verified-email@example.com
-
-   services:
-     nvm:
-       version: v0.40.3
-     uv:
-       version: 0.12.7
-     node_major: 24
-     kandev:
-       npm_package: kandev
-       workflow_sync:
-         enabled: true
-         provider: github
-         workspace_name: Default
-         repo_owner: polaroidkidd
-         repo_name: agent-vm
-         branch: master
-         path: workflows
-         interval_seconds: 300
-         poll_enabled: true
-     pi:
-       npm_package: "@earendil-works/pi-coding-agent"
-       superpowers_package: "@weiping/pi-superpowers"
-       default_model: gpt-5.6-sol
-     pr_agent:
-       enabled: true
-       pypi_package: pr-agent
-       model: cliproxy/codex-auto-review
-       fallback_model: cliproxy/gpt-5.6-sol
-       workers: 2
-   ```
-
-   The populated file contains `NB_SETUP_KEY`, `STRIPE_API_KEY`, the GitHub App
-   private key, and separate agent/root console passwords, is ignored by Git,
-   and must remain mode `0600`. The two console passwords must be distinct. All
-   configuration values are validated before any VM operation. `NB_SETUP_KEY`
-   may be one-off or reusable. A rebuild creates a new NetBird peer and therefore
-   needs another usable key. To omit PR-Agent, set `services.pr_agent.enabled` to
-   `false`; its port and GitHub App values are then not required.
-
-   `services.kandev.workflow_sync` is the declarative source for the active
-   workspace's GitHub Workflow Sync configuration. Set `enabled: false` only when
-   this VM should not manage Workflow Sync. The named workspace must exist exactly
-   once. `create`, `provision`, and `update` save the configuration but do not force
-   the initial repository read because a fresh Kandev instance has no workspace
-   GitHub authorization yet.
-
-   Repository-owned Agent Skills live under `skills/<name>/`. `create`, `provision`,
-   and `update` automatically copy every skill there to
-   `/home/agent/.agents/skills/<name>`. Pi discovers that user-global location when
-   Kandev starts a new agent session. Each immediate subdirectory of `skills/` must
-   have a valid lowercase skill name and contain `SKILL.md`.
-
-   Pi Superpowers is installed globally for the shared `agent` account using the
-   exact npm release recorded during `create` or `update`. Its bootstrap extension,
-   skills, and prompt templates are available to every new Pi session after Kandev
-   restarts.
-
-   Node.js is installed for `agent` through the pinned NVM release. The configured
-   major selects the Node.js release line; NVM-managed `node`, `npm`, `npx`,
-   `kandev`, and `pi` are also exposed through stable `/usr/local/bin` links for
-   systemd services and non-interactive SSH commands.
-
-   Python 3, `pip`, and `pipx` come from Ubuntu packages. The configured `uv`
-   release is installed for `agent` through `pipx`; both `uv` and `uvx` are
-   exposed through stable `/usr/local/bin` links for workloads and interactive
-   shells.
-
-2. Validate the host, then create and provision the VM:
+2. Create and provision the VM:
 
    ```bash
    ./agent-vm create
    ```
 
-   This generates `.state/admin_ed25519`, `.state/github_ed25519`, an OpenPGP
-   commit-signing key, application secrets, resolved versions, the QCOW2 overlay,
-   and cloud-init data. `.state` is ignored and restricted locally.
-
-   System libvirt runs QEMU as `libvirt-qemu`. `create` adds narrow POSIX ACL entries that grant this account traversal through otherwise-private parent directories and access only to the QCOW2 overlay, cloud-init seed, and verified base image. Other `.state` files remain inaccessible.
-
-3. Register the generated SSH authentication key and OpenPGP signing key with
-   GitHub. This command prints both public keys and their registration URLs:
+3. Register the VM-specific public GitHub keys:
 
    ```bash
    ./agent-vm configure-github --show-only
    ```
 
-   Add the SSH key at **Settings → SSH and GPG keys → New SSH key** as an
-   **Authentication Key**. Add the armored OpenPGP block at **New GPG key**. The
-   configured Git email must be verified on the GitHub account.
-
-   After registering both, import the private OpenPGP key into the guest, apply
-   the Git configuration, and verify SSH authentication:
+   Add the SSH key as an Authentication Key and the armored GPG block as a GPG key
+   in GitHub settings. The Git email must be verified on the account. Then run:
 
    ```bash
    ./agent-vm configure-github
    ```
 
-   The VM accepts GitHub Git traffic through SSH only and pins GitHub's published
-   Ed25519 host key. When `guest.git.sign_commits` is `true`, provisioning imports
-   the generated private OpenPGP key into the shared `agent` account and configures
-   Git to sign every commit—including Kandev commits—with its fingerprint. Set it
-   to `false` to disable automatic signing. The unencrypted private key exists only
-   in ignored mode-`0600` state and the guest's private GnuPG keyring so Kandev can
-   sign non-interactively.
+   Git traffic uses SSH with GitHub's pinned Ed25519 host key. With
+   `guest.git.sign_commits: true`, the guest signs commits noninteractively using
+   its VM-specific key. Private keys remain in ignored state and the guest keyring.
+   Use the connected GitHub integration for hosting workflows, never `gh`.
 
-4. Complete the interactive Codex OAuth login:
+4. Complete CLIProxyAPI's interactive Codex OAuth login:
 
    ```bash
    ./agent-vm configure-cliproxy
+   ./agent-vm configure-models
    ```
 
-   The command stops the background CLIProxyAPI service for the login, forwards the standard local OAuth callback port over SSH, runs the no-browser login as `agent`, and restarts the service afterward. Open the displayed authorization URL on your workstation.
+   Login temporarily stops CLIProxyAPI, forwards callback port 1455 over SSH, and
+   restarts the service afterward. Open the displayed URL on the workstation.
+   `configure-models` imports the live catalog directly into Pi, refreshes Kandev,
+   and migrates old `bifrost/cliproxy/...` profile models to `cliproxy/...`.
+   Repeat it after adding or reauthenticating a CLIProxyAPI Auth File.
 
-5. Reapply and validate Bifrost's declarative CLIProxyAPI-only routing:
-
-   ```bash
-   ./agent-vm configure-bifrost
-   ```
-
-   This also imports the live models from the CLIProxyAPI OAuth account, through
-   Bifrost, into Pi and refreshes Kandev's model selector. Run it again after
-   adding, removing, or reauthenticating a CLIProxyAPI Auth File.
-
-6. In Kandev, connect the named workspace to GitHub using an automation connection
-   that can read `polaroidkidd/agent-vm`. Preserve an existing manual Development
-   workflow by renaming it to `Development (legacy)`, then force and validate the
-   declaratively configured sync:
+5. Create the configured workspace in Kandev and connect its GitHub automation
+   integration with read access to `polaroidkidd/agent-vm`. Register repositories,
+   then run:
 
    ```bash
    ./agent-vm configure-kandev-workflow
+   ./agent-vm provision
    ```
 
-   The command requires the configured branch and `workflows` directory to exist
-   remotely. It fails when Kandev reports an error, `last_ok` is false, or any
-   warning is present. This workspace GitHub connection is separate from the VM's
-   Git SSH key and the PR-Agent GitHub App.
+   Workflow Sync reads the configured remote branch and directory. A local YAML
+   edit has no live effect until it is published there. The command requires
+   `last_ok: true`, no error, and no warnings. Provisioning renames the manual
+   duplicate to `Development (legacy)` and places the synced `Development` first.
+   Existing tasks remain attached to their original workflow.
 
-7. Provision the PR-Agent GitHub App service:
-
-   ```bash
-   ./agent-vm configure-pr-agent
-   ```
-
-   PR-Agent uses a dedicated Bifrost virtual key that can access only
-   `services.pr_agent.model` and `services.pr_agent.fallback_model`. Host-level
-   settings restrict automatic behavior to `/review`, disable push-triggered
-   runs and draft feedback, and enable PR-Agent restricted mode.
-
-8. Create the three private NetBird Reverse Proxy services and the separate
-   public PR-Agent webhook route described below.
-
-9. Check the complete installation:
+6. Configure the two private NetBird reverse proxies below, then verify:
 
    ```bash
    ./agent-vm doctor
    ```
 
-   To send one end-to-end Pi request through Bifrost and CLIProxyAPI as a final integration test, opt in explicitly:
+   An optional model inference test consumes subscription capacity:
 
    ```bash
    ./agent-vm doctor --live-model-test
    ```
 
-   The live test consumes subscription capacity and is therefore never run by the default doctor command.
+CLIProxyAPI is an unofficial compatibility bridge. Subscription access and API
+access are separate products; compatibility can change independently of this VM.
 
-`create` installs and enrolls NetBird using the required YAML values. If those values change later, reapply the client configuration with:
+## Kandev task environments
 
-```bash
-./agent-vm configure-netbird
+Provisioning manages scripts for repositories explicitly listed in configuration:
+
+```yaml
+services:
+  node_major: 24
+  corepack_version: 0.35.0
+  node_versions: [24.7.0]
+  kandev:
+    repositories:
+      - {name: whatsin.fyi, preset: whatsin-fyi}
+      - {name: services, preset: compose}
 ```
 
-## NetBird Reverse Proxy setup
+Names must match registered repositories in the configured workspace. Missing
+workspaces or repositories are reported as pending so first provisioning can finish.
+The configured presets own the repository's setup/dev/cleanup fields; remove a
+repository entry before maintaining those fields manually.
 
-Server-side NetBird configuration is deliberately not automated. In the NetBird dashboard, create three HTTP Layer 7 services. For every service:
+`agent-vm-task` reads the checkout's exact `.nvmrc` and `packageManager` pins. Add
+required Node versions to `services.node_versions`; Corepack downloads the selected
+pnpm version into the writable user cache. The default Node installation and
+Corepack wrappers are also available to noninteractive Kandev sessions.
 
-- Select the peer named by `NB_HOSTNAME` in `config/agent-vm.yaml`.
-- Select HTTP as the target protocol.
-- Enable TLS termination.
-- Enable NetBird-Only Access and restrict it to the trusted user/peer group.
-- Enable host-header forwarding and redirect rewriting when the application requires them.
-- Wait for the service to become `active`.
+### whatsin.fyi
 
-| Public hostname | Peer target port | Purpose |
+- **Setup:** Kandev copies `.env.development` from the source checkout. The helper
+  runs frozen-lockfile installation, workspace generation, and installation of the
+  repository's Playwright Chromium version. Setup does not contact a database.
+- **Preview:** The helper starts one PostgreSQL 17 Compose project per worktree,
+  with a generated password, a private named volume, and an ephemeral loopback
+  port. It overrides `DIRECT_DATABASE_URL`, prepares that database, and starts
+  Vite on another loopback port. Open the reported port through Kandev.
+- The helper bypasses the root `web:dev` chain, which calls database push with
+  `--accept-data-loss`. Schema preparation here never accepts destructive changes
+  automatically. It does not start Stripe listeners or production Compose stacks.
+- **Cleanup:** Stop the preview in Kandev first. Cleanup stops only that worktree's
+  Compose project and preserves its database volume for resuming work. It never
+  prunes Docker data or removes another worktree's services.
+
+Task ownership and credentials live under
+`~/.local/state/agent-vm/tasks/kandev-<path-hash>/` in private files. A single preview
+per worktree is enforced with a lock. Wrangler logs and the Miniflare worker
+registry also live in this task directory. Database volumes persist after cleanup;
+remove an obsolete task's specifically named volume only when its data is no longer
+needed. The preset supplies a local database, not production seed data or external
+image/payment services.
+
+### services
+
+Setup verifies the pinned pnpm version and Docker Compose. This infrastructure
+repository has no automatic dev server. Follow its repository instructions and
+validate only the changed stack with `docker compose ... config -q`; provisioning
+and the task helper do not start, stop, or prune its stacks.
+
+## Shell and runtime tools
+
+The headless shell enables Git, Docker/Compose, fuzzy history, directory navigation,
+archive extraction, colored manuals, safe paste, command suggestions, additional
+completions, and syntax highlighting. NetBird and pnpm completions are guarded by
+command availability. Shell history and completion caches live in writable XDG
+locations; Oh My Zsh does not update itself during shell startup.
+
+The VM includes `rg`, `fd`, `fzf`, `sqlite3`, `tmux`, `vim`, `tree`, Python/pip/pipx,
+`uv`, Docker/Compose, and stable Node/Corepack/pnpm/Yarn entry points. Kandev's
+systemd unit permits writes to workspaces, Pi configuration, npm/XDG caches, local
+user data, and the GPG keyring. These paths are shared by trusted agents in this
+single-user VM; they are not task isolation boundaries. Task databases and preview
+ports are isolated separately.
+
+Superpowers remains installed for explicit use. The Development workflow does not
+require or invoke it unless the user asks. Kandev remains the plan authority, with
+the committed `docs/plans/<task-id>.md` mirror and the existing review gates.
+
+## NetBird reverse proxies
+
+Server-side NetBird configuration is managed separately. Create HTTP services for
+the configured peer, enable TLS termination and NetBird-only access, and restrict
+access to the trusted group. Support WebSocket traffic for Kandev.
+
+| Hostname | Peer port | Purpose |
 |---|---:|---|
-| `kandev.intra.dle.dev` | `38429` | Kandev board, API, and WebSocket traffic |
-| `bifrost.intra.dle.dev` | `8080` | Bifrost dashboard and OpenAI-compatible API |
+| `kandev.intra.dle.dev` | `38429` | Kandev board, API, and WebSockets |
 | `cliapiproxy.intra.dle.dev` | `8317` | CLIProxyAPI API and management UI |
 
-The ports come from `config/agent-vm.yaml`; use the configured values if you changed them. The guest firewall accepts these ports only over loopback and `wt0`, not over the libvirt LAN.
+Use the configured ports if different. Guest ingress permits these services only
+on `wt0`, plus normal loopback access. CLIProxyAPI still requires its credentials.
+Its management UI is at `/management.html`; plugin artifacts live in
+`~/.config/cliproxyapi/plugins`.
 
-NetBird Reverse Proxy is currently beta. Self-hosted deployments must provide the NetBird proxy/Traefik infrastructure required by the [official Reverse Proxy guide](https://docs.netbird.io/manage/reverse-proxy).
+For an existing installation, retire the Bifrost dashboard proxy and public
+PR-Agent webhook route in their separately managed infrastructure. Disable the
+retired GitHub App webhook/installation where appropriate. Guest provisioning
+cannot remove these external resources and does not change Kandev's independent
+GitHub connection.
 
-After configuration, use:
-
-- Kandev: <https://kandev.intra.dle.dev>
-- Bifrost: <https://bifrost.intra.dle.dev>
-- CLIProxyAPI: <https://cliapiproxy.intra.dle.dev/management.html>
-
-CLIProxyAPI's UI and APIs share port 8317. Bifrost and CLIProxyAPI still require their own credentials after NetBird admits the connection.
-Plugin installation is enabled in the management UI, with artifacts stored under
-`~/.config/cliproxyapi/plugins`. CLIProxyAPI plugins are trusted native libraries
-loaded into the service process, so install only plugins whose source and release
-artifacts you trust.
-
-## PR-Agent GitHub App and webhook
-
-Create a dedicated GitHub App following the
-[official self-hosted PR-Agent guide](https://docs.pr-agent.ai/installation/github/#run-as-a-github-app).
-Grant only these repository permissions:
-
-- Pull requests: read and write
-- Issues: read and write
-- Metadata: read-only
-- Contents: read-only
-
-Subscribe only to `Pull request`. Do not subscribe to `Issue comment`,
-`Pull request review comment`, or `Push`: this review-only deployment does not
-accept interactive `/improve` commands and deliberately disables automatic
-push-triggered reviews. Generate an App private key, put its ID and PEM value in
-the ignored YAML configuration, install the App only on the repositories it may
-review, and rerun `./agent-vm configure-pr-agent`.
-
-GitHub cannot reach a NetBird-only hostname. Publish only
-`POST /api/v1/github_webhooks` through a separate public HTTPS reverse proxy,
-forwarding over NetBird to guest port `3000` (or the configured
-`ports.pr_agent`). Do not expose Bifrost, CLIProxyAPI, Kandev, SSH, or PR-Agent's
-other paths through that public listener. Configure the GitHub App with:
-
-- Webhook URL: `https://<public-review-host>/api/v1/github_webhooks`
-- Webhook secret: `jq -r .pr_agent_webhook_secret .state/secrets.json`
-
-The guest firewall accepts the PR-Agent port only on `wt0`; the public edge is
-an independently operated ingress boundary and is not created by this repository.
-PR-Agent verifies every webhook signature and rejects requests when its secret
-is absent or incorrect.
-
-## Credentials and tool configuration
-
-Generated secrets are stored in `.state/secrets.json` with mode `0600`. The CLI never prints them during normal operation. Inspect only the value you need, for example:
+SSH tunnel fallback:
 
 ```bash
-jq -r .bifrost_virtual_key .state/secrets.json
-jq -r .bifrost_admin_password .state/secrets.json
-jq -r .cliproxy_management_secret .state/secrets.json
-jq -r .pr_agent_webhook_secret .state/secrets.json
+ssh -L 38429:127.0.0.1:38429 -L 8317:127.0.0.1:8317 agent@<netbird-address>
 ```
 
-For a tool that accepts an OpenAI-compatible base URL:
+## Credentials
+
+Generated credentials live in `.state/secrets.json` with mode `0600`. For tools
+supporting an OpenAI-compatible endpoint:
 
 ```bash
-export OPENAI_BASE_URL=https://bifrost.intra.dle.dev/v1
-export OPENAI_API_KEY="$(jq -r .bifrost_virtual_key .state/secrets.json)"
+export OPENAI_BASE_URL=https://cliapiproxy.intra.dle.dev/v1
+export OPENAI_API_KEY="$(jq -r .cliproxy_api_key .state/secrets.json)"
 ```
 
-Inside the VM, use `http://127.0.0.1:8080/v1`. The requested model must be present in CLIProxyAPI's `/v1/models` response. Change `services.pi.default_model` in the YAML and rerun `configure-bifrost` to select a different Pi default from the live catalog. Change the two `services.pr_agent` model values and rerun `configure-pr-agent` to change PR-Agent's Bifrost allowlist.
-
-Pi is installed and preconfigured with the Bifrost provider. Changes to the
-managed Pi package restart Kandev so its local-agent discovery is refreshed. In
-Kandev, open **Settings → Agents**, rescan the local host, select Pi, and review
-the generated local profile before starting work. Kandev runs Pi as the same
-`agent` account and uses local workspaces only.
-
-`STRIPE_API_KEY` comes from the ignored, mode-`0600` VM configuration. Provisioning
-writes it to a mode-`0600` agent environment file used by Kandev and direct Zsh
-sessions, so Pi and workspace processes inherit it without storing the value in
-tracked files.
-
-The guest's Zsh configuration is a headless, portable adaptation of `polaroidkidd/regolith-dot-files`. It installs every real custom plugin found in the requested workstation inventory (the Oh My Zsh `example` placeholder is excluded), enables the portable active subset, and omits Kitty and workstation-only graphical helpers.
-
-SSH tunnel fallbacks are available even before the NetBird proxies are configured:
-
-```bash
-ssh -L 8080:127.0.0.1:8080 agent@<netbird-address>
-ssh -L 8317:127.0.0.1:8317 agent@<netbird-address>
-ssh -L 3000:127.0.0.1:3000 agent@<netbird-address>
-```
-
-Then open `http://127.0.0.1:8080`, `http://127.0.0.1:8317/management.html`, or
-`http://127.0.0.1:3000/` for PR-Agent's health response.
+Inside the VM, the base URL is `http://127.0.0.1:8317/v1`. Use a model ID returned
+by `/v1/models`. The CLIProxyAPI management secret is separate from its API key.
+`STRIPE_API_KEY` is loaded into Kandev and interactive shells from a private guest
+environment file. Avoid printing full service environments, configuration, or logs.
 
 ## Routine operations
 
 ```bash
-./agent-vm status       # VM state, address, and recorded versions
-./agent-vm doctor       # service and non-billable integration readiness
-./agent-vm provision    # idempotently reapply recorded versions
-./agent-vm configure-kandev-workflow  # force and verify Workflow Sync
-./agent-vm update       # resolve and install the latest stable releases
+./agent-vm status       # recorded VM metadata and versions
+./agent-vm doctor       # non-billable service and integration checks
+./agent-vm provision    # reapply recorded releases and configured settings
+./agent-vm configure-models
+./agent-vm configure-kandev-workflow  # force and verify remote Workflow Sync
+./agent-vm configure-netbird
+./agent-vm update       # resolve and install latest stable application releases
 ```
 
-`provision` never performs an application upgrade. `update` excludes alpha, beta, release-candidate, nightly, preview, development, and draft releases. CLIProxyAPI release artifacts and the Ubuntu image are SHA-256 verified.
-For Node.js, `provision` retains the installed release when it already matches
-`services.node_major`, while `update` installs the newest release in that major.
-Changing `services.nvm.version` or `services.node_major` and running `provision`
-applies the explicitly configured NVM or Node.js line.
-Changing `services.uv.version` and running `provision` similarly installs that
-exact `uv` release.
+Full provisioning reconciles Workflow Sync settings without forcing a fetch; its
+poller reads the remote source. It also applies repository presets and removes
+retired components. `provision` retains recorded application releases and a Node
+release matching `node_major`; `update` advances them. Explicit NVM, uv, Corepack,
+and additional Node pins are applied by provisioning. CLIProxyAPI artifacts and
+the Ubuntu image are SHA-256 checked.
 
-Every full `create`, `provision`, and `update` run also reconciles the configured
-Kandev Workflow Sync fields without forcing a repository read. The background
-poller can sync after the workspace GitHub integration exists; use
-`configure-kandev-workflow` when an immediate, warning-free result is required.
+Docker group membership grants root-equivalent control within the guest. Reconnect
+shells after the first Docker installation to acquire the new group membership.
 
-Every full `create`, `provision`, and `update` run installs Ubuntu's Docker
-Engine, Buildx, and Docker Compose packages, starts the Docker daemon, and adds
-`agent` to the `docker` group. Reconnect any shell that was already open when
-Docker was first provisioned so it picks up the new group membership. Docker
-group membership is effectively root-equivalent inside the VM because it grants
-access to the privileged Docker daemon.
+The separate destructive command `./agent-vm rebuild --yes-destroy` deletes the VM,
+workspaces, application/OAuth state, and generated identities. Nothing is restored
+automatically. The agent console password is reapplied by provisioning; the root
+recovery password changes only at creation or rebuild. Root SSH and SSH password
+authentication remain disabled.
 
-The destructive rebuild command is intentionally separate:
+## Troubleshooting and validation
+
+Use `virsh -c qemu:///system dominfo agent-vm` and `domifaddr agent-vm --source agent`
+for live VM state. `virsh -c qemu:///system console agent-vm` provides console access
+(detach with `Ctrl+]`). In the guest:
 
 ```bash
-./agent-vm rebuild --yes-destroy
+sudo systemctl status docker kandev cliproxyapi netbird
+sudo journalctl -u kandev -n 100 --no-pager
+sudo netbird status
+sudo ufw status verbose
+curl -f http://127.0.0.1:38429/health
+curl -f http://127.0.0.1:8317/healthz
 ```
 
-It deletes the libvirt domain, QCOW2 overlay, application state, workspaces, OAuth state, and generated identities. Push all work first. Nothing is restored automatically, and GitHub/NetBird/Codex must be enrolled again.
-
-The `agent` console password comes from `guest.console_agent_password` in the ignored, mode-`0600` configuration file. It is applied during `create`, `provision`, and `update`, so changing it takes effect on the next provisioning run. The console recovery root password comes from `guest.console_root_password` and only changes during `create` or the destructive `rebuild`. Both passwords are hashed through standard input, so neither is exposed in OpenSSL process arguments. Root SSH and all SSH password authentication remain disabled.
-
-## Troubleshooting
-
-- VM console: `virsh console agent-vm` (log in as `agent` with `guest.console_agent_password`; detach with `Ctrl+]`)
-- VM details: `virsh dominfo agent-vm` and `virsh domifaddr agent-vm --source agent`
-- Services: `sudo systemctl status docker kandev pr-agent bifrost cliproxyapi netbird`
-- Logs: `sudo journalctl -u <service> -n 200 --no-pager`
-- NetBird: `sudo netbird status` and `ip addr show wt0`
-- GitHub CLI: `gh --version`
-- Docker: `docker version`, `docker compose version`, and `docker info`
-- Python tooling: `pip --version`, `pipx --version`, and `uv --version`
-- Firewall: `sudo ufw status verbose`
-- CLIProxyAPI health: `curl http://127.0.0.1:8317/healthz`
-- Bifrost health: `curl http://127.0.0.1:8080/health`
-- Kandev health: `curl http://127.0.0.1:38429/health`
-- PR-Agent health: `curl http://127.0.0.1:3000/`
-
-`doctor` reports provisioning failures separately from pending GitHub registration, Codex OAuth, and NetBird enrollment. Server-side Reverse Proxy services are out of scope and are not probed automatically.
-
-## Development checks
-
-Run the dependency-free unit suite and syntax checks with:
-
-```bash
-make check
-```
+`doctor` distinguishes infrastructure failures from pending GitHub registration,
+OAuth, and NetBird enrollment. External reverse proxies are not probed. Run local
+unit and syntax checks with `make check`. See [workflows/README.md](workflows/README.md)
+for the workflow state-machine validation procedure.

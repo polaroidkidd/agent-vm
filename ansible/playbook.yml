@@ -27,9 +27,18 @@
           - gh
           - gnupg
           - jq
+          - ripgrep
+          - fd-find
+          - sqlite3
+          - fzf
+          - tmux
+          - vim
+          - less
+          - tree
           - openssh-server
           - python3
           - python3-debian
+          - python3-yaml
           - tar
           - ufw
           - unzip
@@ -56,6 +65,28 @@
         state: present
         update_cache: true
       tags: [base, python]
+
+    - name: Install Chromium runtime dependencies for repository Playwright versions
+      ansible.builtin.apt:
+        name:
+          - libnss3
+          - libatk-bridge2.0-0t64
+          - libatk1.0-0t64
+          - libcups2t64
+          - libdrm2
+          - libxkbcommon0
+          - libxcomposite1
+          - libxdamage1
+          - libxfixes3
+          - libxrandr2
+          - libgbm1
+          - libasound2t64
+          - libatspi2.0-0t64
+          - libpango-1.0-0
+          - libcairo2
+          - fonts-liberation
+        state: present
+      tags: [base, browser]
 
     - name: Ensure agent account configuration
       ansible.builtin.user:
@@ -116,18 +147,18 @@
         - {path: "{{ workspace_dir }}", mode: "0750"}
         - {path: "/home/{{ agent_user }}/.ssh", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.config", mode: "0700"}
-        - {path: "/home/{{ agent_user }}/.config/bifrost", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.config/cliproxyapi", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.config/cliproxyapi/plugins", mode: "0700"}
-        - {path: "/home/{{ agent_user }}/.config/pr-agent", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.cache", mode: "0700"}
-        - {path: "/home/{{ agent_user }}/.cache/bifrost", mode: "0700"}
-        - {path: "/home/{{ agent_user }}/.cache/pr-agent", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.cache/zsh", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.local/share", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.local/state/zsh", mode: "0700"}
+        - {path: "/home/{{ agent_user }}/.gnupg", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.npm", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.kandev", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.agents/skills", mode: "0700"}
         - {path: "/home/{{ agent_user }}/.pi/agent", mode: "0700"}
-      tags: [base, shell, services, pr-agent]
+      tags: [base, shell, services]
 
     - name: Install global Pi agent skills
       ansible.builtin.copy:
@@ -367,6 +398,21 @@
       changed_when: "'agent-vm-node-changed' in nvm_node_install.stdout_lines"
       tags: [services]
 
+    - name: Install repository-pinned Node.js releases
+      ansible.builtin.shell: |
+        set -eu
+        export NVM_DIR=/home/{{ agent_user }}/.nvm
+        . "$NVM_DIR/nvm.sh"
+        nvm install "{{ item }}"
+      args:
+        executable: /bin/bash
+        creates: "/home/{{ agent_user }}/.nvm/versions/node/v{{ item }}/bin/node"
+      become_user: "{{ agent_user }}"
+      environment:
+        HOME: "/home/{{ agent_user }}"
+      loop: "{{ services.node_versions | default([]) }}"
+      tags: [services]
+
     - name: Resolve active NVM Node.js binary
       ansible.builtin.shell: |
         set -eu
@@ -380,12 +426,12 @@
         HOME: "/home/{{ agent_user }}"
       register: nvm_node_binary
       changed_when: false
-      tags: [services, pr-agent]
+      tags: [services]
 
     - name: Record active NVM Node.js binary directory
       ansible.builtin.set_fact:
         nvm_node_bin_dir: "{{ nvm_node_binary.stdout | trim | dirname }}"
-      tags: [services, pr-agent]
+      tags: [services]
 
     - name: Activate NVM-managed Node.js tools
       ansible.builtin.file:
@@ -421,7 +467,6 @@
       loop:
         - {package: "{{ services.kandev.npm_package }}", version: "{{ versions.kandev.version }}"}
         - {package: "{{ services.pi.npm_package }}", version: "{{ versions.pi.version }}"}
-        - {package: "{{ services.bifrost.npm_package }}", version: "{{ versions.bifrost.version }}"}
       become_user: "{{ agent_user }}"
       environment:
         HOME: "/home/{{ agent_user }}"
@@ -441,102 +486,46 @@
       notify: Restart Kandev
       tags: [services]
 
-    - name: Resolve installed Bifrost gateway binary
-      ansible.builtin.shell: |
-        set -eu
-        package_dir="$(npm root --global)/{{ services.bifrost.npm_package }}"
-        node -e '
-          const path = require("path");
-          const dir = process.argv[1];
-          const pkg = require(path.join(dir, "package.json"));
-          const relative = typeof pkg.bin === "string" ? pkg.bin : Object.values(pkg.bin || {})[0];
-          if (!relative) process.exit(2);
-          process.stdout.write(path.resolve(dir, relative));
-        ' "$package_dir"
-      args:
-        executable: /bin/bash
+    - name: Install pinned Corepack for repository package manager selection
+      community.general.npm:
+        name: corepack
+        version: "{{ services.corepack_version | default('0.35.0') }}"
+        executable: "{{ nvm_node_bin_dir }}/npm"
+        global: true
+        state: present
       become_user: "{{ agent_user }}"
       environment:
         HOME: "/home/{{ agent_user }}"
         PATH: "{{ nvm_node_bin_dir }}:/usr/local/bin:/usr/bin:/bin"
-      register: bifrost_binary
-      changed_when: false
-      tags: [services, bifrost, pr-agent]
+      tags: [services]
 
-    - name: Activate Bifrost gateway binary
+    - name: Expose Corepack in noninteractive sessions
       ansible.builtin.file:
-        src: "{{ bifrost_binary.stdout }}"
-        dest: /usr/local/bin/bifrost-gateway
+        src: "{{ nvm_node_bin_dir }}/corepack"
+        dest: /usr/local/bin/corepack
         state: link
         force: true
-      notify: Restart Bifrost
-      tags: [services, bifrost, pr-agent]
+      tags: [services]
 
-    - name: Create PR-Agent release directory
-      ansible.builtin.file:
-        path: "/opt/pr-agent/{{ versions.pr_agent.version }}"
-        state: directory
+    - name: Expose project-aware package manager commands
+      ansible.builtin.copy:
+        dest: "/usr/local/bin/{{ item }}"
         owner: root
         group: root
         mode: "0755"
-      when: pr_agent is not none
-      tags: [services, pr-agent]
+        content: |
+          #!/bin/sh
+          export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+          exec /usr/local/bin/corepack {{ item }} "$@"
+      loop: [pnpm, yarn]
+      tags: [services]
 
-    - name: Download verified PR-Agent wheel
-      ansible.builtin.get_url:
-        url: "{{ versions.pr_agent.url }}"
-        dest: "/var/tmp/{{ versions.pr_agent.asset }}"
-        checksum: "sha256:{{ versions.pr_agent.sha256 }}"
-        mode: "0600"
-      when: pr_agent is not none
-      tags: [services, pr-agent]
-
-    - name: Install exact PR-Agent release
-      ansible.builtin.shell: |
-        set -eu
-        release_dir="/opt/pr-agent/{{ versions.pr_agent.version }}"
-        /usr/local/bin/uv venv --python /usr/bin/python3 "$release_dir/venv"
-        /usr/local/bin/uv pip install \
-          --python "$release_dir/venv/bin/python" \
-          "/var/tmp/{{ versions.pr_agent.asset }}"
-        touch "$release_dir/.installed"
-      args:
-        executable: /bin/bash
-        creates: "/opt/pr-agent/{{ versions.pr_agent.version }}/.installed"
-      when: pr_agent is not none
-      notify: Restart PR-Agent
-      tags: [services, pr-agent]
-
-    - name: Activate PR-Agent release
+    - name: Expose fd under its upstream command name
       ansible.builtin.file:
-        src: "/opt/pr-agent/{{ versions.pr_agent.version }}"
-        dest: /opt/pr-agent/current
+        src: /usr/bin/fdfind
+        dest: /usr/local/bin/fd
         state: link
-        force: true
-      when: pr_agent is not none
-      notify: Restart PR-Agent
-      tags: [services, pr-agent]
-
-    - name: Resolve installed PR-Agent package directory
-      ansible.builtin.command:
-        argv:
-          - /opt/pr-agent/current/venv/bin/python
-          - -c
-          - "import pathlib, pr_agent; print(pathlib.Path(pr_agent.__file__).parent)"
-      register: pr_agent_package_dir
-      changed_when: false
-      when: pr_agent is not none
-      tags: [services, pr-agent]
-
-    - name: Create PR-Agent production settings directory
-      ansible.builtin.file:
-        path: "{{ pr_agent_package_dir.stdout }}/settings_prod"
-        state: directory
-        owner: "{{ agent_user }}"
-        group: "{{ agent_user }}"
-        mode: "0700"
-      when: pr_agent is not none
-      tags: [services, pr-agent]
+      tags: [base]
 
     - name: Create CLIProxyAPI release directory
       ansible.builtin.file:
@@ -617,101 +606,6 @@
       notify: Restart CLIProxyAPI
       tags: [services, cliproxy]
 
-    - name: Configure Bifrost environment
-      ansible.builtin.template:
-        src: bifrost.env.j2
-        dest: "/home/{{ agent_user }}/.config/bifrost/bifrost.env"
-        owner: "{{ agent_user }}"
-        group: "{{ agent_user }}"
-        mode: "0600"
-      no_log: true
-      notify: Restart Bifrost
-      tags: [services, bifrost, pr-agent]
-
-    - name: Configure Bifrost
-      ansible.builtin.template:
-        src: bifrost-config.json.j2
-        dest: "/home/{{ agent_user }}/.config/bifrost/config.json"
-        owner: "{{ agent_user }}"
-        group: "{{ agent_user }}"
-        mode: "0600"
-      notify: Restart Bifrost
-      tags: [services, bifrost, pr-agent]
-
-    - name: Install Bifrost systemd unit
-      ansible.builtin.template:
-        src: bifrost.service.j2
-        dest: /etc/systemd/system/bifrost.service
-        owner: root
-        group: root
-        mode: "0644"
-      notify: Restart Bifrost
-      tags: [services, bifrost]
-
-    - name: Remove interrupted Bifrost runtime downloads
-      ansible.builtin.shell: |
-        set -eu
-        find /home/{{ agent_user }}/.cache/bifrost \
-          -type f -name 'bifrost-http-*' ! -perm /111 -print -delete
-      args:
-        executable: /bin/bash
-      register: removed_bifrost_downloads
-      changed_when: removed_bifrost_downloads.stdout_lines | length > 0
-      notify: Restart Bifrost
-      tags: [services, bifrost]
-
-    - name: Configure PR-Agent secrets and Bifrost access
-      ansible.builtin.template:
-        src: pr-agent-secrets.toml.j2
-        dest: "{{ pr_agent_package_dir.stdout }}/settings_prod/.secrets.toml"
-        owner: "{{ agent_user }}"
-        group: "{{ agent_user }}"
-        mode: "0600"
-      no_log: true
-      when: pr_agent is not none
-      notify: Restart PR-Agent
-      tags: [services, pr-agent]
-
-    - name: Configure PR-Agent review-only behavior
-      ansible.builtin.template:
-        src: pr-agent.env.j2
-        dest: "/home/{{ agent_user }}/.config/pr-agent/pr-agent.env"
-        owner: "{{ agent_user }}"
-        group: "{{ agent_user }}"
-        mode: "0600"
-      when: pr_agent is not none
-      notify: Restart PR-Agent
-      tags: [services, pr-agent]
-
-    - name: Install PR-Agent systemd unit
-      ansible.builtin.template:
-        src: pr-agent.service.j2
-        dest: /etc/systemd/system/pr-agent.service
-        owner: root
-        group: root
-        mode: "0644"
-      when: pr_agent is not none
-      notify: Restart PR-Agent
-      tags: [services, pr-agent]
-
-    - name: Check for an existing PR-Agent systemd unit
-      ansible.builtin.stat:
-        path: /etc/systemd/system/pr-agent.service
-      register: pr_agent_unit
-      when: pr_agent is none
-      tags: [services, pr-agent]
-
-    - name: Disable PR-Agent service when not configured
-      ansible.builtin.systemd_service:
-        name: pr-agent
-        enabled: false
-        state: stopped
-        daemon_reload: true
-      when:
-        - pr_agent is none
-        - pr_agent_unit.stat.exists
-      tags: [services, pr-agent]
-
     - name: Install Kandev systemd unit
       ansible.builtin.template:
         src: kandev.service.j2
@@ -733,7 +627,7 @@
       notify: Restart Kandev
       tags: [services, kandev, shell]
 
-    - name: Configure Pi provider through Bifrost
+    - name: Seed Pi provider through CLIProxyAPI
       ansible.builtin.template:
         src: pi-models.json.j2
         dest: "/home/{{ agent_user }}/.pi/agent/models.json"
@@ -806,7 +700,33 @@
         owner: root
         group: root
         mode: "0755"
-      tags: [services, pi, bifrost]
+      tags: [services, pi, model-sync]
+
+    - name: Install Kandev task environment helpers
+      ansible.builtin.copy:
+        src: "files/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop: [agent-vm-task, agent-vm-configure-kandev]
+      tags: [services, kandev, model-sync, kandev-workflow]
+
+    - name: Create VM-owned Kandev configuration directory
+      ansible.builtin.file:
+        path: /etc/agent-vm
+        state: directory
+        owner: root
+        mode: "0755"
+      tags: [services, kandev, model-sync, kandev-workflow]
+
+    - name: Configure repository task environment presets
+      ansible.builtin.copy:
+        dest: /etc/agent-vm/kandev.json
+        content: "{{ kandev_runtime_config | to_nice_json }}\n"
+        owner: root
+        mode: "0644"
+      tags: [services, kandev, model-sync, kandev-workflow]
 
     - name: Install Kandev Workflow Sync configurator
       ansible.builtin.copy:
@@ -896,30 +816,8 @@
       loop:
         - "22"
         - "{{ ports.kandev }}"
-        - "{{ ports.bifrost }}"
         - "{{ ports.cliproxyapi }}"
       tags: [firewall]
-
-    - name: Allow NetBird-only PR-Agent webhook ingress
-      community.general.ufw:
-        rule: allow
-        interface_in: wt0
-        port: "{{ ports.pr_agent }}"
-        proto: tcp
-      when: pr_agent is not none
-      tags: [firewall, pr-agent]
-
-    - name: Remove NetBird PR-Agent ingress when disabled
-      community.general.ufw:
-        rule: allow
-        interface_in: wt0
-        port: "{{ ports.pr_agent }}"
-        proto: tcp
-        delete: true
-      when:
-        - pr_agent is none
-        - ports.pr_agent is defined
-      tags: [firewall, pr-agent]
 
     - name: Set firewall policies
       community.general.ufw:
@@ -943,29 +841,10 @@
         daemon_reload: true
       tags: [services, cliproxy]
 
-    # Apply queued service changes before the enable tasks. In particular, do
-    # not start Bifrost and then immediately interrupt its first runtime
-    # download with an end-of-play handler restart.
+    # Apply queued service changes before the final readiness checks.
     - name: Apply pending service restarts
       ansible.builtin.meta: flush_handlers
-      tags: [services, cliproxy, bifrost, pr-agent, kandev]
-
-    - name: Enable Bifrost service
-      ansible.builtin.systemd_service:
-        name: bifrost
-        enabled: true
-        state: started
-        daemon_reload: true
-      tags: [services, bifrost]
-
-    - name: Enable PR-Agent service
-      ansible.builtin.systemd_service:
-        name: pr-agent
-        enabled: true
-        state: started
-        daemon_reload: true
-      when: pr_agent is not none
-      tags: [services, pr-agent]
+      tags: [services, cliproxy, kandev]
 
     - name: Enable Kandev service
       ansible.builtin.systemd_service:
@@ -974,6 +853,35 @@
         state: started
         daemon_reload: true
       tags: [services, kandev]
+
+    - name: Wait for CLIProxyAPI before synchronizing models
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ports.cliproxyapi }}/healthz"
+      register: cliproxy_ready
+      until: cliproxy_ready.status == 200
+      retries: 30
+      delay: 2
+      tags: [services]
+
+    - name: Synchronize Pi models directly from CLIProxyAPI
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/agent-vm-sync-pi-models
+          - --base-url
+          - "http://127.0.0.1:{{ ports.cliproxyapi }}"
+          - --config-path
+          - "/home/{{ agent_user }}/.config/cliproxyapi/config.yaml"
+          - --models-path
+          - "/home/{{ agent_user }}/.pi/agent/models.json"
+          - --settings-path
+          - "/home/{{ agent_user }}/.pi/agent/settings.json"
+          - --preferred
+          - "{{ services.pi.default_model }}"
+          - --allow-pending
+      become_user: "{{ agent_user }}"
+      register: pi_model_sync
+      changed_when: "'agent-vm-models-changed' in pi_model_sync.stdout"
+      tags: [services]
 
     - name: Wait for Kandev before configuring Workflow Sync
       ansible.builtin.uri:
@@ -984,8 +892,17 @@
       until: kandev_workflow_sync_health.status == 200
       retries: 30
       delay: 2
-      when: kandev_workflow_sync is not none
       tags: [services, kandev, kandev-workflow]
+
+    - name: Refresh Kandev after a model catalog migration
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ports.kandev }}/api/v1/agent-models/pi-acp?refresh=true"
+        timeout: 90
+        return_content: true
+      register: kandev_pi_catalog
+      failed_when: kandev_pi_catalog.status != 200 or kandev_pi_catalog.json.status != 'ok'
+      when: pi_model_sync is defined and pi_model_sync.changed
+      tags: [services]
 
     - name: Apply declarative Kandev Workflow Sync configuration
       ansible.builtin.command:
@@ -1015,6 +932,80 @@
       when: kandev_workflow_sync is not none
       tags: [services, kandev, kandev-workflow]
 
+    - name: Reconcile Kandev profiles workflow adoption and repository scripts
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/agent-vm-configure-kandev
+          - --base-url
+          - "http://127.0.0.1:{{ ports.kandev }}"
+          - --config
+          - /etc/agent-vm/kandev.json
+      become_user: "{{ agent_user }}"
+      register: kandev_runtime_reconcile
+      changed_when: "'\"changed\": true' in kandev_runtime_reconcile.stdout"
+      tags: [services, kandev]
+
+    - name: Inspect services before removing retired components
+      ansible.builtin.service_facts:
+      tags: [services, retired-services]
+
+    - name: Stop and disable retired Bifrost and PR-Agent services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: [bifrost, pr-agent]
+      when: "(item ~ '.service') in ansible_facts.services"
+      tags: [services, retired-services]
+
+    - name: Uninstall Bifrost from every NVM release
+      ansible.builtin.shell: |
+        set -eu
+        for package in /home/{{ agent_user }}/.nvm/versions/node/*/lib/node_modules/@maximhq/bifrost; do
+          [ -d "$package" ] || continue
+          prefix="${package%/lib/node_modules/@maximhq/bifrost}"
+          /usr/local/bin/npm uninstall --global --prefix "$prefix" --ignore-scripts @maximhq/bifrost
+          echo agent-vm-retired-package-removed
+        done
+      args:
+        executable: /bin/bash
+      become_user: "{{ agent_user }}"
+      register: retired_npm_packages
+      changed_when: "'agent-vm-retired-package-removed' in retired_npm_packages.stdout"
+      tags: [services, retired-services]
+
+    - name: Remove retired service files credentials and caches
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/bifrost.service
+        - /etc/systemd/system/pr-agent.service
+        - /usr/local/bin/bifrost-gateway
+        - /opt/pr-agent
+        - "/home/{{ agent_user }}/.config/bifrost"
+        - "/home/{{ agent_user }}/.cache/bifrost"
+        - "/home/{{ agent_user }}/.config/pr-agent"
+        - "/home/{{ agent_user }}/.cache/pr-agent"
+      register: retired_service_files
+      tags: [services, retired-services]
+
+    - name: Reload systemd after removing retired units
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: retired_service_files.changed
+      tags: [services, retired-services]
+
+    - name: Remove retired NetBird service ingress
+      community.general.ufw:
+        rule: allow
+        interface_in: wt0
+        port: "{{ item }}"
+        proto: tcp
+        delete: true
+      loop: "{{ retired_service_ports }}"
+      tags: [firewall, retired-services]
+
   handlers:
     - name: Restart ssh
       ansible.builtin.systemd_service:
@@ -1026,19 +1017,6 @@
         name: cliproxyapi
         state: restarted
         daemon_reload: true
-
-    - name: Restart Bifrost
-      ansible.builtin.systemd_service:
-        name: bifrost
-        state: restarted
-        daemon_reload: true
-
-    - name: Restart PR-Agent
-      ansible.builtin.systemd_service:
-        name: pr-agent
-        state: restarted
-        daemon_reload: true
-      when: pr_agent is not none
 
     - name: Restart Kandev
       ansible.builtin.systemd_service:

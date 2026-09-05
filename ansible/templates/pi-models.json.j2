@@ -1,13 +1,13 @@
 {
   "providers": {
-    "bifrost": {
-      "baseUrl": "http://127.0.0.1:{{ ports.bifrost }}/v1",
+    "cliproxy": {
+      "baseUrl": "http://127.0.0.1:{{ ports.cliproxyapi }}/v1",
       "api": "openai-responses",
-      "apiKey": {{ generated_secrets.bifrost_virtual_key | to_json }},
+      "apiKey": {{ generated_secrets.cliproxy_api_key | to_json }},
       "models": [
         {
           "id": {{ services.pi.default_model | to_json }},
-          "name": "{{ services.pi.default_model }} through Bifrost and CLIProxyAPI",
+          "name": "{{ services.pi.default_model }} through CLIProxyAPI",
           "reasoning": true,
           "input": ["text", "image"],
           "contextWindow": 200000,

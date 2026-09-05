@@ -28,7 +28,7 @@ VALID = {
             "email": "agent@example.test",
         },
     },
-    "ports": {"kandev": 38429, "bifrost": 8080, "cliproxyapi": 8317},
+    "ports": {"kandev": 38429, "cliproxyapi": 8317},
     "NB_HOSTNAME": "agent-vm",
     "NB_MANAGEMENT_URL": "https://netbird.example.com",
     "NB_SETUP_KEY": "test-setup-key",
@@ -56,7 +56,6 @@ VALID = {
             "superpowers_package": "@weiping/pi-superpowers",
             "default_model": "model",
         },
-        "bifrost": {"npm_package": "bifrost"},
         "cliproxyapi": {"github_repository": "owner/repo", "asset_pattern": "linux"},
     },
 }
@@ -189,54 +188,10 @@ class ConfigTests(unittest.TestCase):
 
     def test_ports_must_be_unique(self):
         raw = copy.deepcopy(VALID)
-        raw["ports"]["bifrost"] = raw["ports"]["kandev"]
+        raw["ports"]["cliproxyapi"] = raw["ports"]["kandev"]
         with self.assertRaisesRegex(AgentVMError, "unique"):
             self.config(raw).validate()
 
-    def test_enabled_pr_agent_requires_unique_port_and_github_app_identity(self):
-        raw = copy.deepcopy(VALID)
-        raw["ports"]["pr_agent"] = 3000
-        raw["services"]["pr_agent"] = {
-            "enabled": True,
-            "pypi_package": "pr-agent",
-            "model": "cliproxy/codex-auto-review",
-            "fallback_model": "cliproxy/gpt-5.6-sol",
-            "workers": 2,
-        }
-        raw["PR_AGENT_GITHUB_APP_ID"] = 123456
-        raw["PR_AGENT_GITHUB_PRIVATE_KEY"] = (
-            "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----"
-        )
-
-        config = self.config(raw)
-        config.validate()
-
-        self.assertEqual("cliproxy/codex-auto-review", config.pr_agent["model"])
-        self.assertEqual(123456, config.pr_agent["github_app_id"])
-        self.assertEqual("codex-auto-review", config.pr_agent["bifrost_model"])
-        self.assertEqual("gpt-5.6-sol", config.pr_agent["bifrost_fallback_model"])
-
-    def test_disabled_pr_agent_does_not_require_credentials(self):
-        raw = copy.deepcopy(VALID)
-        raw["services"]["pr_agent"] = {"enabled": False}
-        config = self.config(raw)
-        config.validate()
-        self.assertIsNone(config.pr_agent)
-
-    def test_enabled_pr_agent_rejects_invalid_private_key(self):
-        raw = copy.deepcopy(VALID)
-        raw["ports"]["pr_agent"] = 3000
-        raw["services"]["pr_agent"] = {
-            "enabled": True,
-            "pypi_package": "pr-agent",
-            "model": "model",
-            "fallback_model": "fallback",
-            "workers": 2,
-        }
-        raw["PR_AGENT_GITHUB_APP_ID"] = 123456
-        raw["PR_AGENT_GITHUB_PRIVATE_KEY"] = "not a key"
-        with self.assertRaisesRegex(AgentVMError, "PEM key"):
-            self.config(raw).validate()
 
     def test_netbird_hostname_is_validated(self):
         raw = copy.deepcopy(VALID)

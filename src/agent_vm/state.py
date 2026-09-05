@@ -76,13 +76,10 @@ class State:
             "agent_console_password_salt": secrets.token_hex(8),
             "cliproxy_api_key": "sk-cpa-" + secrets.token_urlsafe(32),
             "cliproxy_management_secret": secrets.token_urlsafe(36),
-            "bifrost_admin_username": "admin",
-            "bifrost_admin_password": secrets.token_urlsafe(32),
-            "bifrost_encryption_key": secrets.token_urlsafe(48),
-            "bifrost_virtual_key": "sk-bf-" + secrets.token_urlsafe(32),
-            "pr_agent_bifrost_virtual_key": "sk-bf-pr-" + secrets.token_urlsafe(32),
-            "pr_agent_webhook_secret": secrets.token_hex(32),
         }
+        for key in list(values):
+            if key.startswith(("bifrost_", "pr_agent_")):
+                del values[key]
         for key, value in defaults.items():
             values.setdefault(key, value)
         self.write_json(self.secrets_path, values, secret=True)

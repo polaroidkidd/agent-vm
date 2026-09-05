@@ -218,7 +218,7 @@ packages:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             result = self.runner.run([
-                "ssh", "-i", str(private_key), "-o", "BatchMode=yes",
+                "ssh", "-F", "/dev/null", "-i", str(private_key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
                 "-o", f"UserKnownHostsFile={self.known_hosts}", "-o", "StrictHostKeyChecking=yes",
                 "-o", "ConnectTimeout=5", f"{user}@{address}", "cloud-init status --wait",
             ], check=False, capture=True)

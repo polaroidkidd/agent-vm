@@ -9,8 +9,6 @@ class PlaybookTests(unittest.TestCase):
     def test_targeted_service_tags_start_their_services(self):
         for name, tag in (
             ("CLIProxyAPI", "cliproxy"),
-            ("Bifrost", "bifrost"),
-            ("PR-Agent", "pr-agent"),
             ("Kandev", "kandev"),
         ):
             with self.subTest(service=name):
@@ -178,20 +176,11 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("notify: Restart Kandev", task)
         self.assertIn("tags: [services, pi, skills]", task)
 
-    def test_bifrost_recovers_interrupted_runtime_download_before_one_final_start(self):
-        cleanup = self.playbook.index("- name: Remove interrupted Bifrost runtime downloads")
-        flush = self.playbook.index("- name: Apply pending service restarts")
-        enable = self.playbook.index("- name: Enable Bifrost service")
-        self.assertLess(cleanup, flush)
-        self.assertLess(flush, enable)
-        task = self.playbook[cleanup:flush]
-        self.assertIn("! -perm /111 -print -delete", task)
-        self.assertIn("notify: Restart Bifrost", task)
 
-    def test_bifrost_tag_installs_pi_model_catalog_synchronizer(self):
+    def test_model_sync_tag_installs_pi_model_catalog_synchronizer(self):
         task = self.playbook.split("- name: Install Pi model catalog synchronizer", 1)[1].split("\n\n", 1)[0]
         self.assertIn("agent-vm-sync-pi-models", task)
-        self.assertIn("tags: [services, pi, bifrost]", task)
+        self.assertIn("tags: [services, pi, model-sync]", task)
 
     def test_provision_applies_declarative_kandev_workflow_sync_configuration(self):
         install = self.playbook.split(
@@ -218,66 +207,8 @@ class PlaybookTests(unittest.TestCase):
         self.assertIn("become_user", configure)
         self.assertIn("changed_when", configure)
 
-    def test_pr_agent_uses_verified_release_and_dedicated_bifrost_key(self):
-        for name in (
-            "Resolve active NVM Node.js binary",
-            "Record active NVM Node.js binary directory",
-        ):
-            with self.subTest(task=name):
-                task = self.playbook.split(f"- name: {name}", 1)[1].split("\n\n", 1)[0]
-                self.assertIn("tags: [services, pr-agent]", task)
-
-        download = self.playbook.split("- name: Download verified PR-Agent wheel", 1)[1].split(
-            "\n\n", 1
-        )[0]
-        self.assertIn("versions.pr_agent.url", download)
-        self.assertIn('checksum: "sha256:{{ versions.pr_agent.sha256 }}"', download)
-
-        secrets = (
-            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent-secrets.toml.j2"
-        ).read_text(encoding="utf-8")
-        self.assertIn("generated_secrets.pr_agent_bifrost_virtual_key", secrets)
-        self.assertIn('api_base = "http://127.0.0.1:{{ ports.bifrost }}/v1"', secrets)
-        self.assertIn("pr_agent.github_app_id | string | to_json", secrets)
-        self.assertIn("[config]", secrets)
-        self.assertIn("fallback_models = {{ [pr_agent.fallback_model] | to_json }}", secrets)
-
-        bifrost = (
-            Path(__file__).parents[1] / "ansible" / "templates" / "bifrost-config.json.j2"
-        ).read_text(encoding="utf-8")
-        self.assertIn('"id": "vk-pr-agent"', bifrost)
-        self.assertIn("pr_agent.bifrost_model | to_json", bifrost)
-        self.assertIn("pr_agent.bifrost_fallback_model | to_json", bifrost)
-
-    def test_pr_agent_is_restricted_to_review_only_automation(self):
-        environment = (
-            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent.env.j2"
-        ).read_text(encoding="utf-8")
-        self.assertIn('GITHUB_APP__PR_COMMANDS=["/review"]', environment)
-        self.assertIn("GITHUB_APP__HANDLE_PUSH_TRIGGER=false", environment)
-        self.assertIn("CONFIG__RESTRICTED_MODE=true", environment)
-        self.assertIn("CONFIG__MAX_MODEL_TOKENS=200000", environment)
-        self.assertIn("CONFIG__TEMPERATURE=1", environment)
-        self.assertIn("CONFIG__LOG_LEVEL=INFO", environment)
-        self.assertNotIn("CONFIG__FALLBACK_MODELS", environment)
-        self.assertIn("LITELLM__CUSTOM_LLM_PROVIDER=openai", environment)
-
-        unit = (
-            Path(__file__).parents[1] / "ansible" / "templates" / "pr-agent.service.j2"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Requires=bifrost.service", unit)
-        self.assertIn("python:pr_agent.servers.gunicorn_config", unit)
-        self.assertIn("ProtectSystem=strict", unit)
-        self.assertIn("ProtectHome=read-only", unit)
-
-        disabled = self.playbook.split(
-            "- name: Disable PR-Agent service when not configured", 1
-        )[1].split("\n\n", 1)[0]
-        self.assertIn("enabled: false", disabled)
-        self.assertIn("state: stopped", disabled)
-
     def test_provision_does_not_overwrite_synchronized_pi_catalog(self):
-        for name in ("Configure Pi provider through Bifrost", "Configure Pi defaults"):
+        for name in ("Seed Pi provider through CLIProxyAPI", "Configure Pi defaults"):
             with self.subTest(task=name):
                 task = self.playbook.split(f"- name: {name}", 1)[1].split("\n\n", 1)[0]
                 self.assertIn("force: false", task)

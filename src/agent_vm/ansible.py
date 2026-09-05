@@ -45,7 +45,7 @@ class Ansible:
         git_signing_key = self.state.git_signing_key() if self.config.git_sign_commits else None
         inventory = self.state.directory / "inventory.ini"
         variables = self.state.directory / "ansible-vars.json"
-        ssh_args = f"-o UserKnownHostsFile={self.state.directory / 'known_hosts'} -o StrictHostKeyChecking=yes"
+        ssh_args = f"-F /dev/null -o IdentitiesOnly=yes -o UserKnownHostsFile={self.state.directory / 'known_hosts'} -o StrictHostKeyChecking=yes"
         inventory.write_text(
             "[agent_vm]\n"
             f"{self.config.vm['name']} ansible_host={address} ansible_user={self.config.guest['user']} "
@@ -69,7 +69,17 @@ class Ansible:
             "ports": self.config.ports,
             "services": self.config.services,
             "kandev_workflow_sync": self.config.kandev_workflow_sync,
-            "pr_agent": self.config.pr_agent,
+            "kandev_runtime_config": {
+                "adopt_workflow": self.config.kandev_workflow_sync is not None,
+                "workspace_name": self.config.services["kandev"]["workflow_sync"].get("workspace_name", "Default"),
+                "workflow_path": self.config.services["kandev"]["workflow_sync"].get("path", "workflows").strip("/") + "/development.yaml",
+                "repositories": self.config.services["kandev"].get("repositories", []),
+            },
+            "retired_service_ports": sorted(
+                {self.config.raw["ports"].get("bifrost", 8080),
+                 self.config.raw["ports"].get("pr_agent", 3000)}
+                - set(self.config.ports.values())
+            ),
             "pi_skills": self.config.pi_skills,
             "versions": versions,
             "generated_secrets": secrets,

@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Reconcile the VM-owned Kandev profiles, workflow selection, and repo scripts."""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import shlex
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+
+def api(base_url: str, path: str, *, method: str = "GET", data=None):
+    body = None if data is None else json.dumps(data).encode()
+    headers = {"Content-Type": "application/json"}
+    if method not in {"GET", "HEAD"}:
+        boot = api(base_url, "/app-state?path=%2Fsettings%2Fagents")
+        token = boot.get("interimSettingsInterlockToken")
+        if not isinstance(token, str) or not token:
+            raise ValueError("Kandev did not provide its settings mutation token")
+        headers["X-Kandev-Interim-Settings-Interlock"] = token
+    request = Request(base_url.rstrip("/") + "/api/v1" + path, data=body, method=method,
+                      headers=headers)
+    try:
+        with urlopen(request, timeout=60) as response:
+            content = response.read()
+            return json.loads(content) if content else {}
+    except HTTPError as exc:
+        # API responses may contain user configuration; do not print their bodies.
+        raise RuntimeError(f"Kandev {method} {path} failed with HTTP {exc.code}") from exc
+
+
+def migrated_model(model: str | None) -> str | None:
+    if model and model.startswith("bifrost/cliproxy/"):
+        return model.removeprefix("bifrost/")
+    return model
+
+
+def repository_settings(preset: str) -> dict[str, str]:
+    if preset not in {"whatsin-fyi", "compose"}:
+        raise ValueError(f"Unknown repository preset: {preset}")
+    command = "/usr/local/bin/agent-vm-task"
+    settings = {"setup_script": f"{command} setup --preset {shlex.quote(preset)}",
+                "cleanup_script": f"{command} cleanup --preset {shlex.quote(preset)}"}
+    if preset == "whatsin-fyi":
+        settings.update(dev_script=f"{command} preview --preset {preset}", copy_files=".env.development")
+    else:
+        settings["dev_script"] = ""
+    return settings
+
+
+def reconcile(base_url: str, config: dict) -> dict:
+    changes, pending = [], []
+    catalog = None
+    # Preserve every profile setting except the retired provider prefix.
+    for agent in api(base_url, "/agents").get("agents", []):
+        if agent.get("name") != "pi-acp":
+            continue
+        for profile in agent.get("profiles", []):
+            patch = {key: migrated_model(profile.get(key, "")) for key in ("model", "fallback_model")
+                     if migrated_model(profile.get(key, "")) != profile.get(key, "")}
+            if patch:
+                if catalog is None:
+                    result = api(base_url, "/agent-models/pi-acp?refresh=true")
+                    if result.get("status") != "ok":
+                        raise ValueError("Pi model discovery must be ready before retiring Bifrost")
+                    catalog = {m["id"] for m in result.get("models", [])}
+                if any(model and model not in catalog for model in patch.values()):
+                    raise ValueError("A migrated profile model is absent from Pi's direct catalog")
+                api(base_url, f"/agent-profiles/{profile['id']}", method="PATCH", data=patch)
+                changes.append(f"Migrated Pi profile {profile['name']}")
+
+    workspaces = [w for w in api(base_url, "/workspaces").get("workspaces", [])
+                  if w["name"] == config["workspace_name"]]
+    if not workspaces:
+        return {"changed": bool(changes), "changes": changes, "pending": ["Create the configured Kandev workspace first"]}
+    if len(workspaces) != 1:
+        raise ValueError("The configured Kandev workspace name is ambiguous")
+    workspace = workspaces[0]["id"]
+    workflows = api(base_url, f"/workspaces/{workspace}/workflows").get("workflows", [])
+    target = [w for w in workflows if w.get("source") == "github"
+              and w.get("source_path") == config.get("workflow_path", "workflows/development.yaml")
+              and w["name"] == "Development"]
+    if not config.get("adopt_workflow", True):
+        pass
+    elif len(target) == 1:
+        for workflow in workflows:
+            if workflow.get("source") in {"", "manual"} and workflow["name"] == "Development":
+                if any(w["name"] == "Development (legacy)" for w in workflows):
+                    raise ValueError("Development (legacy) already exists; resolve duplicate manual workflows")
+                api(base_url, f"/workflows/{workflow['id']}", method="PATCH", data={"name": "Development (legacy)"})
+                changes.append("Renamed manual Development workflow; existing tasks remain attached")
+        ordered = sorted(workflows, key=lambda w: w.get("sort_order", 0))
+        ids = [target[0]["id"]] + [w["id"] for w in ordered if w["id"] != target[0]["id"]]
+        if ids != [w["id"] for w in ordered]:
+            api(base_url, f"/workspaces/{workspace}/workflows/reorder", method="PUT", data={"workflow_ids": ids})
+            changes.append("Placed synced Development first for new tasks")
+    elif len(target) > 1:
+        raise ValueError("Multiple synced Development workflows match the configured source")
+    else:
+        pending.append("Sync the Development workflow before adopting it")
+
+    repositories = api(base_url, f"/workspaces/{workspace}/repositories").get("repositories", [])
+    for entry in config.get("repositories", []):
+        matches = [r for r in repositories if r["name"] == entry["name"]]
+        if not matches:
+            pending.append(f"Register repository {entry['name']} before configuring its scripts")
+            continue
+        if len(matches) != 1:
+            raise ValueError(f"Repository name is ambiguous: {entry['name']}")
+        repo = matches[0]
+        desired = repository_settings(entry["preset"])
+        patch = {key: value for key, value in desired.items() if repo.get(key, "") != value}
+        if patch:
+            api(base_url, f"/repositories/{repo['id']}", method="PATCH", data=patch)
+            changes.append(f"Configured task scripts for {repo['name']}")
+    return {"changed": bool(changes), "changes": changes, "pending": pending}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--config", type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(reconcile(args.base_url, json.loads(args.config.read_text()))))
+
+
+if __name__ == "__main__":
+    main()

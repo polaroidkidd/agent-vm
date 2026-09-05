@@ -5,11 +5,6 @@ NB_HOSTNAME: agent-vm
 NB_MANAGEMENT_URL: 
 NB_SETUP_KEY: replace-with-the-setup-key
 STRIPE_API_KEY: replace-with-a-stripe-api-key
-PR_AGENT_GITHUB_APP_ID: 123456
-PR_AGENT_GITHUB_PRIVATE_KEY: |-
-  -----BEGIN RSA PRIVATE KEY-----
-  replace-with-the-github-app-private-key
-  -----END RSA PRIVATE KEY-----
 
 vm:
   name: agent-vm
@@ -36,9 +31,7 @@ guest:
 
 ports:
   kandev: 38429
-  bifrost: 8080
   cliproxyapi: 8317
-  pr_agent: 3000
 
 services:
   nvm:
@@ -46,8 +39,13 @@ services:
   uv:
     version: 0.12.7
   node_major: 24
+  corepack_version: 0.35.0
+  node_versions: [24.7.0]
   kandev:
     npm_package: kandev
+    repositories:
+      - {name: whatsin.fyi, preset: whatsin-fyi}
+      - {name: services, preset: compose}
     workflow_sync:
       enabled: true
       provider: github
@@ -62,17 +60,9 @@ services:
     npm_package: "@earendil-works/pi-coding-agent"
     superpowers_package: "@weiping/pi-superpowers"
     default_model: gpt-5.6-sol
-  bifrost:
-    npm_package: "@maximhq/bifrost"
   cliproxyapi:
     github_repository: router-for-me/CLIProxyAPI
     asset_pattern: "CLIProxyAPI_.*_linux_amd64\\.tar\\.gz$"
-  pr_agent:
-    enabled: true
-    pypi_package: pr-agent
-    model: cliproxy/codex-auto-review
-    fallback_model: cliproxy/gpt-5.6-sol
-    workers: 2
 
 local:
   state_dir: .state

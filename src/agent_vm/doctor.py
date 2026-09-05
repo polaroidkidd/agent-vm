@@ -19,7 +19,7 @@ class Check:
 def _remote(runner: Runner, config: Config, state: State, address: str, command: str):
     private_key = state.directory / "admin_ed25519"
     return runner.run([
-        "ssh", "-i", str(private_key), "-o", "BatchMode=yes",
+        "ssh", "-F", "/dev/null", "-i", str(private_key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
         "-o", f"UserKnownHostsFile={state.directory / 'known_hosts'}",
         "-o", "StrictHostKeyChecking=yes", f"{config.guest['user']}@{address}", command,
     ], check=False, capture=True)
@@ -139,10 +139,7 @@ def run_doctor(
     live_model_test: bool = False,
 ) -> list[Check]:
     checks: list[Check] = []
-    pr_agent = getattr(config, "pr_agent", None)
-    services = ["docker", "kandev", "bifrost", "cliproxyapi", "netbird"]
-    if pr_agent:
-        services.append("pr-agent")
+    services = ["docker", "kandev", "cliproxyapi", "netbird"]
     for service in services:
         result = _remote(runner, config, state, address, f"systemctl is-active {service}")
         active = result.returncode == 0 and result.stdout.strip() == "active"
@@ -160,7 +157,7 @@ def run_doctor(
         "ready" if docker.returncode == 0 and bool(docker_version) else "failed",
         f"Docker Engine {docker_version}" if docker_version else "agent cannot access the Docker daemon",
     ))
-    for executable in ("gh", "pip", "pipx", "uv"):
+    for executable in ("pip", "pipx", "uv", "corepack", "pnpm", "rg", "fd", "sqlite3"):
         result = _remote(runner, config, state, address, f"{executable} --version 2>&1")
         detail = result.stdout.strip()
         checks.append(Check(
@@ -170,11 +167,8 @@ def run_doctor(
         ))
     endpoints = {
         "kandev": f"http://127.0.0.1:{config.ports['kandev']}/health",
-        "bifrost": f"http://127.0.0.1:{config.ports['bifrost']}/health",
         "cliproxyapi": f"http://127.0.0.1:{config.ports['cliproxyapi']}/healthz",
     }
-    if pr_agent:
-        endpoints["pr-agent"] = f"http://127.0.0.1:{config.ports['pr_agent']}/"
     for name, url in endpoints.items():
         result = _remote(
             runner,
@@ -210,43 +204,6 @@ def run_doctor(
         "ready" if cliproxy_ready else "pending",
         "nonempty model catalog available" if cliproxy_ready else "run configure-cliproxy",
     ))
-    bifrost_models = _remote(
-        runner,
-        config,
-        state,
-        address,
-        "set -a; . ~/.config/bifrost/bifrost.env; set +a; "
-        f"curl -fsS --max-time 10 -H \"Authorization: Bearer $BIFROST_VIRTUAL_KEY\" http://127.0.0.1:{config.ports['bifrost']}/v1/models",
-    )
-    bifrost_ready = bifrost_models.returncode == 0 and _has_models(bifrost_models.stdout)
-    checks.append(Check(
-        "integration:bifrost-routing",
-        "ready" if bifrost_ready else "pending",
-        "virtual key reaches CLIProxyAPI models" if bifrost_ready else "complete OAuth, then run configure-bifrost",
-    ))
-    if pr_agent:
-        pr_agent_model_ready = bifrost_ready and _has_model(bifrost_models.stdout, pr_agent["model"])
-        checks.append(Check(
-            "integration:pr-agent-bifrost",
-            "ready" if pr_agent_model_ready else "pending",
-            "configured review model is available through Bifrost"
-            if pr_agent_model_ready else f"Bifrost does not advertise {pr_agent['model']}",
-        ))
-        github_app = _remote(
-            runner,
-            config,
-            state,
-            address,
-            "/opt/pr-agent/current/venv/bin/python -c "
-            "'from github import GithubIntegration; from pr_agent.config_loader import get_settings; "
-            "s=get_settings(); GithubIntegration(s.github.app_id, s.github.private_key).get_app()'",
-        )
-        checks.append(Check(
-            "integration:pr-agent-github",
-            "ready" if github_app.returncode == 0 else "pending",
-            "GitHub accepted the configured App identity"
-            if github_app.returncode == 0 else "register or correct the GitHub App credentials",
-        ))
     pi_version = _remote(runner, config, state, address, "pi --version 2>&1")
     checks.append(Check(
         "integration:pi",

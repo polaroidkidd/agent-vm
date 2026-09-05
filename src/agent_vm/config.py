@@ -108,7 +108,7 @@ class Config:
             raise AgentVMError("guest.workspace_dir must be absolute")
         ports = _required(self.raw, "ports", dict, "config")
         seen: set[int] = set()
-        for name in ("kandev", "bifrost", "cliproxyapi"):
+        for name in ("kandev", "cliproxyapi"):
             port = _required(ports, name, int, "ports")
             if not 1 <= port <= 65535 or port in seen:
                 raise AgentVMError(f"ports.{name} must be unique and between 1 and 65535")
@@ -141,7 +141,16 @@ class Config:
         node_major = _required(services, "node_major", int, "services")
         if node_major <= 0:
             raise AgentVMError("services.node_major must be greater than zero")
-        for name in ("kandev", "pi", "bifrost"):
+        corepack_version = services.get("corepack_version", "0.35.0")
+        if not isinstance(corepack_version, str) or not UV_VERSION_RE.fullmatch(corepack_version):
+            raise AgentVMError("services.corepack_version must be an exact release")
+        node_versions = services.get("node_versions", [])
+        if not isinstance(node_versions, list) or any(
+            not isinstance(version, str) or not UV_VERSION_RE.fullmatch(version)
+            for version in node_versions
+        ):
+            raise AgentVMError("services.node_versions must be a list of exact releases")
+        for name in ("kandev", "pi"):
             service = _required(services, name, dict, "services")
             _required(service, "npm_package", str, f"services.{name}")
         workflow_sync = _required(
@@ -193,6 +202,19 @@ class Config:
                 raise AgentVMError(
                     "services.kandev.workflow_sync.poll_enabled must be a boolean"
                 )
+        repositories = services["kandev"].get("repositories", [])
+        if not isinstance(repositories, list):
+            raise AgentVMError("services.kandev.repositories must be a list")
+        names = set()
+        for repository in repositories:
+            if not isinstance(repository, dict):
+                raise AgentVMError("Each Kandev repository configuration must be a mapping")
+            name = _required(repository, "name", str, "services.kandev.repositories")
+            if name in names or any(char in name for char in "\r\n\0"):
+                raise AgentVMError("Kandev repository names must be unique single-line strings")
+            names.add(name)
+            if repository.get("preset") not in {"whatsin-fyi", "compose"}:
+                raise AgentVMError("Kandev repository preset must be whatsin-fyi or compose")
         if services["pi"]["npm_package"] != "@earendil-works/pi-coding-agent":
             raise AgentVMError(
                 "services.pi.npm_package must be @earendil-works/pi-coding-agent "
@@ -214,31 +236,6 @@ class Config:
             re.compile(pattern)
         except re.error as exc:
             raise AgentVMError(f"services.cliproxyapi.asset_pattern is invalid: {exc}") from exc
-        pr_agent = services.get("pr_agent")
-        if pr_agent is not None:
-            if not isinstance(pr_agent, dict):
-                raise AgentVMError("services.pr_agent must be a mapping")
-            enabled = pr_agent.get("enabled")
-            if not isinstance(enabled, bool):
-                raise AgentVMError("services.pr_agent.enabled must be a boolean")
-            if enabled:
-                port = _required(ports, "pr_agent", int, "ports")
-                if not 1 <= port <= 65535 or port in seen:
-                    raise AgentVMError("ports.pr_agent must be unique and between 1 and 65535")
-                _required(pr_agent, "pypi_package", str, "services.pr_agent")
-                _required(pr_agent, "model", str, "services.pr_agent")
-                _required(pr_agent, "fallback_model", str, "services.pr_agent")
-                workers = _required(pr_agent, "workers", int, "services.pr_agent")
-                if workers <= 0:
-                    raise AgentVMError("services.pr_agent.workers must be greater than zero")
-                app_id = _required(self.raw, "PR_AGENT_GITHUB_APP_ID", int, "config")
-                if app_id <= 0:
-                    raise AgentVMError("config.PR_AGENT_GITHUB_APP_ID must be greater than zero")
-                private_key = _required(self.raw, "PR_AGENT_GITHUB_PRIVATE_KEY", str, "config")
-                if any(character in private_key for character in "\r\0"):
-                    raise AgentVMError("config.PR_AGENT_GITHUB_PRIVATE_KEY must contain a PEM key")
-                if "-----BEGIN " not in private_key or "PRIVATE KEY-----" not in private_key:
-                    raise AgentVMError("config.PR_AGENT_GITHUB_PRIVATE_KEY must contain a PEM key")
         local = self.raw.get("local", {})
         if not isinstance(local, dict):
             raise AgentVMError("config.local must be a mapping")
@@ -288,7 +285,7 @@ class Config:
 
     @property
     def ports(self) -> dict:
-        return self.raw["ports"]
+        return {name: self.raw["ports"][name] for name in ("kandev", "cliproxyapi")}
 
     @property
     def services(self) -> dict:
@@ -308,19 +305,6 @@ class Config:
             "path": workflow_sync["path"].strip("/"),
             "interval_seconds": workflow_sync["interval_seconds"],
             "poll_enabled": workflow_sync["poll_enabled"],
-        }
-
-    @property
-    def pr_agent(self) -> dict | None:
-        service = self.services.get("pr_agent")
-        if not service or not service.get("enabled", False):
-            return None
-        return {
-            **service,
-            "bifrost_model": service["model"].split("/", 1)[-1],
-            "bifrost_fallback_model": service["fallback_model"].split("/", 1)[-1],
-            "github_app_id": self.raw["PR_AGENT_GITHUB_APP_ID"],
-            "github_private_key": self.raw["PR_AGENT_GITHUB_PRIVATE_KEY"],
         }
 
     @property

@@ -5,19 +5,18 @@ import argparse
 import json
 import os
 import tempfile
+
+import yaml
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 
-def read_environment(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, value = line.split("=", 1)
-        values[name.strip()] = value.strip().strip('"').strip("'")
-    return values
+def read_api_key(path: Path) -> str:
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    keys = config.get("api-keys", []) if isinstance(config, dict) else []
+    if not keys or not isinstance(keys[0], str) or not keys[0]:
+        raise ValueError("CLIProxyAPI configuration has no API key")
+    return keys[0]
 
 
 def fetch_catalog(base_url: str, api_key: str) -> dict:
@@ -32,10 +31,10 @@ def fetch_catalog(base_url: str, api_key: str) -> dict:
 def catalog_ids(catalog: dict) -> list[str]:
     entries = catalog.get("data") if isinstance(catalog, dict) else None
     if not isinstance(entries, list):
-        raise ValueError("Bifrost returned an invalid model catalog")
+        raise ValueError("CLIProxyAPI returned an invalid model catalog")
     ids = sorted({entry.get("id") for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), str)})
     if not ids:
-        raise ValueError("Bifrost returned an empty model catalog; complete CLIProxyAPI OAuth first")
+        raise ValueError("CLIProxyAPI returned an empty model catalog; complete CLIProxyAPI OAuth first")
     return ids
 
 
@@ -54,7 +53,7 @@ def model_entry(model_id: str) -> dict:
     display_name = model_id.removeprefix("cliproxy/")
     return {
         "id": model_id,
-        "name": f"{display_name} through Bifrost and CLIProxyAPI",
+        "name": f"{display_name} through CLIProxyAPI",
         "reasoning": True,
         "input": ["text", "image"],
         "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -63,30 +62,37 @@ def model_entry(model_id: str) -> dict:
 
 def write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(value, indent=2) + "\n"
+    if path.exists() and path.read_text() == rendered and path.stat().st_mode & 0o777 == 0o600:
+        return
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            json.dump(value, output, indent=2)
-            output.write("\n")
+            output.write(rendered)
         os.chmod(temporary, 0o600)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
-def update_pi_files(catalog: dict, models_path: Path, settings_path: Path, preferred: str) -> tuple[list[str], str]:
+def update_pi_files(catalog: dict, models_path: Path, settings_path: Path,
+                    preferred: str, *, base_url: str, api_key: str) -> tuple[list[str], str]:
     model_ids = catalog_ids(catalog)
-    models_config = json.loads(models_path.read_text(encoding="utf-8"))
-    provider = models_config.get("providers", {}).get("bifrost")
-    if not isinstance(provider, dict):
-        raise ValueError(f"{models_path} does not define the Bifrost provider")
-    provider["models"] = [model_entry(model_id) for model_id in model_ids]
-
-    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    models_config = json.loads(models_path.read_text(encoding="utf-8")) if models_path.exists() else {}
+    providers = models_config.setdefault("providers", {})
+    providers.pop("bifrost", None)
+    providers["cliproxy"] = {
+        "baseUrl": base_url.rstrip("/") + "/v1",
+        "api": "openai-responses",
+        "apiKey": api_key,
+        "models": [model_entry(model_id) for model_id in model_ids],
+    }
+    settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
     default_model = choose_default(model_ids, preferred)
-    settings["defaultProvider"] = "bifrost"
+    settings["defaultProvider"] = "cliproxy"
     settings["defaultModel"] = default_model
+    settings.setdefault("defaultThinkingLevel", "high")
 
     write_json(models_path, models_config)
     write_json(settings_path, settings)
@@ -94,29 +100,36 @@ def update_pi_files(catalog: dict, models_path: Path, settings_path: Path, prefe
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Synchronize Pi models from the live Bifrost catalog")
+    result = argparse.ArgumentParser(description="Synchronize Pi models directly from CLIProxyAPI")
     result.add_argument("--base-url", required=True)
-    result.add_argument("--environment-path", type=Path, required=True)
+    result.add_argument("--config-path", type=Path, required=True)
     result.add_argument("--models-path", type=Path, required=True)
     result.add_argument("--settings-path", type=Path, required=True)
     result.add_argument("--preferred", required=True)
+    result.add_argument("--allow-pending", action="store_true")
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
-    environment = read_environment(args.environment_path)
-    api_key = environment.get("BIFROST_VIRTUAL_KEY")
-    if not api_key:
-        raise ValueError(f"BIFROST_VIRTUAL_KEY is missing from {args.environment_path}")
+    api_key = read_api_key(args.config_path)
     catalog = fetch_catalog(args.base_url, api_key)
+    if args.allow_pending and catalog.get("data") == []:
+        print('CLIProxyAPI OAuth is pending; run configure-cliproxy, then configure-models')
+        return 0
+    paths = (args.models_path, args.settings_path)
+    before = [path.read_bytes() if path.exists() else None for path in paths]
     model_ids, default_model = update_pi_files(
         catalog,
         args.models_path,
         args.settings_path,
         args.preferred,
+        base_url=args.base_url,
+        api_key=api_key,
     )
     print(f"Synchronized {len(model_ids)} Pi model(s); default is {default_model}")
+    if before != [path.read_bytes() for path in paths]:
+        print("agent-vm-models-changed")
     return 0
 
 

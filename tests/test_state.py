@@ -17,20 +17,26 @@ class StateTests(unittest.TestCase):
             second = state.ensure_secrets()
             self.assertEqual(first, second)
             self.assertEqual(os.stat(state.secrets_path).st_mode & 0o777, 0o600)
-            self.assertTrue(first["bifrost_virtual_key"].startswith("sk-bf-"))
-            self.assertTrue(first["pr_agent_bifrost_virtual_key"].startswith("sk-bf-pr-"))
-            self.assertRegex(first["pr_agent_webhook_secret"], r"^[0-9a-f]{64}$")
+            self.assertTrue(first["cliproxy_api_key"].startswith("sk-cpa-"))
             self.assertRegex(first["agent_console_password_salt"], r"^[0-9a-f]{16}$")
+
+    def test_retirement_preserves_active_credentials_and_unrelated_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = State(Path(directory) / ".state", Runner())
+            original = state.ensure_secrets()
+            state.write_json(state.secrets_path, dict(original, bifrost_virtual_key="retired", pr_agent_webhook_secret="retired", custom="keep"))
+            migrated = state.ensure_secrets()
+            self.assertEqual(original["cliproxy_api_key"], migrated["cliproxy_api_key"])
+            self.assertEqual(original["cliproxy_management_secret"], migrated["cliproxy_management_secret"])
+            self.assertEqual("keep", migrated["custom"])
+            self.assertFalse(any(key.startswith(("bifrost_", "pr_agent_")) for key in migrated))
 
     def test_rotation_replaces_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
             state = State(Path(directory) / ".state", Runner())
             first = state.ensure_secrets()
             second = state.ensure_secrets(rotate=True)
-            self.assertNotEqual(first["bifrost_virtual_key"], second["bifrost_virtual_key"])
-            self.assertNotEqual(
-                first["pr_agent_webhook_secret"], second["pr_agent_webhook_secret"]
-            )
+            self.assertNotEqual(first["cliproxy_api_key"], second["cliproxy_api_key"])
 
     def test_generated_git_signing_key_is_stable_and_private(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,6 +1,6 @@
 [Unit]
 Description=Kandev agent development board
-After=network-online.target bifrost.service
+After=network-online.target cliproxyapi.service
 Wants=network-online.target
 
 [Service]
@@ -10,6 +10,10 @@ Group={{ agent_user }}
 WorkingDirectory=/home/{{ agent_user }}
 Environment=HOME=/home/{{ agent_user }}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=XDG_CACHE_HOME=/home/{{ agent_user }}/.cache
+Environment=XDG_DATA_HOME=/home/{{ agent_user }}/.local/share
+Environment=XDG_STATE_HOME=/home/{{ agent_user }}/.local/state
+Environment=COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 Environment=KANDEV_HOME_DIR=/home/{{ agent_user }}/.kandev
 Environment=KANDEV_SERVER_HOST=0.0.0.0
 Environment=KANDEV_BACKEND_PORT={{ ports.kandev }}
@@ -22,7 +26,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/{{ agent_user }}/.kandev {{ workspace_dir }} /home/{{ agent_user }}/.pi /home/{{ agent_user }}/.npm
+ReadWritePaths=/home/{{ agent_user }}/.kandev {{ workspace_dir }} /home/{{ agent_user }}/.pi /home/{{ agent_user }}/.npm /home/{{ agent_user }}/.cache /home/{{ agent_user }}/.local /home/{{ agent_user }}/.gnupg
 
 [Install]
 WantedBy=multi-user.target

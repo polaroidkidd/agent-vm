@@ -40,12 +40,11 @@ def parser() -> argparse.ArgumentParser:
     )
     github.add_argument("--show-only", action="store_true")
     sub.add_parser("configure-cliproxy", help="perform interactive Codex OAuth login")
-    sub.add_parser("configure-bifrost", help="reapply and validate Bifrost routing")
+    sub.add_parser("configure-models", help="synchronize Pi models directly from CLIProxyAPI")
     sub.add_parser(
         "configure-kandev-workflow",
         help="force and validate the configured Kandev Workflow Sync",
     )
-    sub.add_parser("configure-pr-agent", help="install and validate the PR-Agent GitHub App service")
     doctor = sub.add_parser("doctor", help="check infrastructure and integrations")
     doctor.add_argument("--json", action="store_true", dest="json_output")
     doctor.add_argument(
@@ -110,6 +109,9 @@ class App:
             perform_update=perform_update,
         )
         self.ansible.run(inventory, variables, tags=tags)
+        if tags is None:
+            selected = {key: value for key, value in selected.items() if key not in {"bifrost", "pr_agent"}}
+            self.state.write_json(self.state.versions_path, selected)
 
     def create(self, *, rotate: bool = False) -> None:
         validate_host(self.config)
@@ -179,27 +181,14 @@ class App:
         self.runner.run(command + [remote])
         print("Codex OAuth completed; run doctor to verify the model catalog")
 
-    def configure_bifrost(self) -> None:
-        self._provision(tags=["bifrost"])
+    def configure_models(self) -> None:
+        self._provision(tags=["model-sync"])
         address, private_key, _, _ = self._existing()
-        result = self.runner.run(
-            self._ssh_args(address, private_key) + [
-                "timeout 180 sh -c "
-                + shlex.quote(
-                    "until curl -fsS --max-time 5 "
-                    f"http://127.0.0.1:{self.config.ports['bifrost']}/health; "
-                    "do sleep 2; done"
-                )
-            ],
-            check=False,
-        )
-        if result.returncode != 0:
-            raise AgentVMError("Bifrost health check failed")
         guest_home = f"/home/{self.config.guest['user']}"
         sync_command = shlex.join([
             "/usr/local/bin/agent-vm-sync-pi-models",
-            "--base-url", f"http://127.0.0.1:{self.config.ports['bifrost']}",
-            "--environment-path", f"{guest_home}/.config/bifrost/bifrost.env",
+            "--base-url", f"http://127.0.0.1:{self.config.ports['cliproxyapi']}",
+            "--config-path", f"{guest_home}/.config/cliproxyapi/config.yaml",
             "--models-path", f"{guest_home}/.pi/agent/models.json",
             "--settings-path", f"{guest_home}/.pi/agent/settings.json",
             "--preferred", self.config.services["pi"]["default_model"],
@@ -221,33 +210,18 @@ class App:
         if refreshed.returncode != 0 or not kandev_ready:
             raise AgentVMError("Kandev did not refresh the synchronized Pi model catalog")
         print(kandev_detail)
-        print(f"Bifrost is configured. Virtual key is stored in {self.state.secrets_path}")
+        self._configure_kandev_runtime(address, private_key)
+        print("Pi is configured to use CLIProxyAPI directly.")
 
-    def configure_pr_agent(self) -> None:
-        if not self.config.pr_agent:
-            raise AgentVMError(
-                "PR-Agent is disabled; configure services.pr_agent and the GitHub App identity first"
-            )
-        versions = self.state.versions()
-        if "pr_agent" not in versions:
-            versions = resolve_all(self.config)
-            self._provision(versions=versions, tags=["pr-agent"], perform_update=True)
-            self.state.write_json(self.state.versions_path, versions)
-        else:
-            self._provision(tags=["pr-agent"])
-        address, private_key, _, _ = self._existing()
-        result = self.runner.run(
-            self._ssh_args(address, private_key) + [
-                "curl -fsS --retry 5 --retry-delay 2 --retry-connrefused "
-                f"--retry-all-errors --max-time 5 http://127.0.0.1:{self.config.ports['pr_agent']}/"
-            ],
-            check=False,
+    def _configure_kandev_runtime(self, address: str, private_key: Path) -> None:
+        configured = self.runner.run(
+            self._ssh_args(address, private_key) + [shlex.join([
+                "/usr/local/bin/agent-vm-configure-kandev",
+                "--base-url", f"http://127.0.0.1:{self.config.ports['kandev']}",
+                "--config", "/etc/agent-vm/kandev.json",
+            ])], capture=True,
         )
-        if result.returncode != 0:
-            raise AgentVMError("PR-Agent health check failed")
-        print("PR-Agent is running through Bifrost.")
-        print(f"Webhook path: /api/v1/github_webhooks on guest port {self.config.ports['pr_agent']}")
-        print(f"Webhook secret: jq -r .pr_agent_webhook_secret {self.state.secrets_path}")
+        print(configured.stdout.strip())
 
     def configure_kandev_workflow(self) -> None:
         if not self.config.kandev_workflow_sync:
@@ -266,6 +240,7 @@ class App:
         if result.returncode != 0 or status != "ready":
             raise AgentVMError(f"Kandev Workflow Sync failed: {detail}")
         print(f"Kandev Workflow Sync is ready: {detail}")
+        self._configure_kandev_runtime(address, private_key)
 
     def doctor(self) -> None:
         address, _, _, _ = self._existing()
@@ -306,7 +281,7 @@ class App:
 
     def _ssh_args(self, address: str, private_key: Path) -> list[str]:
         return [
-            "ssh", "-i", str(private_key), "-o", "BatchMode=yes",
+            "ssh", "-F", "/dev/null", "-i", str(private_key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
             "-o", f"UserKnownHostsFile={self.state.directory / 'known_hosts'}",
             "-o", "StrictHostKeyChecking=yes", f"{self.config.guest['user']}@{address}",
         ]

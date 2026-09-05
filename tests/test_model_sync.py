@@ -26,26 +26,29 @@ class ModelSyncTests(unittest.TestCase):
             settings.write_text(json.dumps({"defaultThinkingLevel": "high"}))
             catalog = {
                 "data": [
-                    {"id": "cliproxy/gpt-5.6-terra"},
-                    {"id": "cliproxy/gpt-5.6-sol"},
-                    {"id": "cliproxy/gpt-5.6-luna"},
-                    {"id": "cliproxy/codex-auto-review"},
+                    {"id": "gpt-5.6-terra"},
+                    {"id": "gpt-5.6-sol"},
+                    {"id": "gpt-5.6-luna"},
+                    {"id": "codex-auto-review"},
                 ]
             }
 
-            ids, default = MODULE.update_pi_files(catalog, models, settings, "gpt-5.6-sol")
+            ids, default = MODULE.update_pi_files(catalog, models, settings, "gpt-5.6-sol", base_url="http://127.0.0.1:8317", api_key="test-key")
 
             self.assertEqual(len(ids), 4)
-            self.assertEqual(default, "cliproxy/gpt-5.6-sol")
+            self.assertEqual(default, "gpt-5.6-sol")
             written_models = json.loads(models.read_text())
             self.assertEqual(
-                [entry["id"] for entry in written_models["providers"]["bifrost"]["models"]],
+                [entry["id"] for entry in written_models["providers"]["cliproxy"]["models"]],
                 sorted(ids),
             )
             written_settings = json.loads(settings.read_text())
-            self.assertEqual(written_settings["defaultProvider"], "bifrost")
+            self.assertEqual(written_settings["defaultProvider"], "cliproxy")
             self.assertEqual(written_settings["defaultModel"], default)
             self.assertEqual(written_settings["defaultThinkingLevel"], "high")
+            self.assertNotIn("bifrost", written_models["providers"])
+            self.assertEqual("test-key", written_models["providers"]["cliproxy"]["apiKey"])
+            self.assertEqual("http://127.0.0.1:8317/v1", written_models["providers"]["cliproxy"]["baseUrl"])
             self.assertEqual(models.stat().st_mode & 0o777, 0o600)
             self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
 
@@ -61,6 +64,20 @@ class ModelSyncTests(unittest.TestCase):
     def test_empty_catalog_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "empty model catalog"):
             MODULE.catalog_ids({"data": []})
+
+    def test_migration_preserves_extensions_and_other_providers_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            models, settings = Path(directory) / "models.json", Path(directory) / "settings.json"
+            models.write_text(json.dumps({"providers": {"local": {"baseUrl": "http://local/v1"}, "bifrost": {}}}))
+            settings.write_text(json.dumps({"packages": ["npm:pi-mcp-adapter"], "defaultThinkingLevel": "low"}))
+            arguments = ({"data": [{"id": "model"}]}, models, settings, "model")
+            MODULE.update_pi_files(*arguments, base_url="http://proxy", api_key="rotated-key")
+            stamps = [path.stat().st_mtime_ns for path in (models, settings)]
+            MODULE.update_pi_files(*arguments, base_url="http://proxy", api_key="rotated-key")
+            self.assertEqual(stamps, [path.stat().st_mtime_ns for path in (models, settings)])
+            self.assertEqual({"baseUrl": "http://local/v1"}, json.loads(models.read_text())["providers"]["local"])
+            self.assertEqual(["npm:pi-mcp-adapter"], json.loads(settings.read_text())["packages"])
+            self.assertEqual("low", json.loads(settings.read_text())["defaultThinkingLevel"])
 
 
 if __name__ == "__main__":

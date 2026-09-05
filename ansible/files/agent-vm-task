@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""Repository bootstrap and task-owned previews for Kandev Worktree sessions."""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import subprocess
+import tempfile
+
+
+def task_name(root: Path) -> str:
+    return "kandev-" + hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
+
+
+def tool_environment(root: Path) -> dict[str, str]:
+    env = dict(os.environ, COREPACK_ENABLE_DOWNLOAD_PROMPT="0", DO_NOT_TRACK="1")
+    pin = (root / ".nvmrc").read_text().strip()
+    if not re.fullmatch(r"v?\d+\.\d+\.\d+", pin):
+        raise ValueError(".nvmrc must contain an exact Node.js version")
+    node_bin = Path.home() / ".nvm/versions/node" / ("v" + pin.removeprefix("v")) / "bin"
+    if not (node_bin / "node").is_file():
+        raise ValueError(f"Node {pin} is missing; add it to services.node_versions and provision the VM")
+    # Stable Corepack wrappers must precede older NVM-global pnpm installations.
+    # A small PATH directory exposes just the selected Node executable.
+    runtime = Path.home() / ".local/state/agent-vm/node" / pin
+    runtime.mkdir(parents=True, exist_ok=True)
+    link = runtime / "node"
+    if not link.exists():
+        link.symlink_to(node_bin / "node")
+    env["PATH"] = f"{runtime}:/usr/local/bin:{node_bin}:/usr/bin:/bin"
+    package = json.loads((root / "package.json").read_text())
+    if not re.fullmatch(r"pnpm@\d+\.\d+\.\d+(?:\+sha\d+\.[a-f0-9]+)?", package.get("packageManager", "")):
+        raise ValueError("package.json must pin an exact pnpm packageManager")
+    return env
+
+
+def run(root: Path, env: dict[str, str], *args: str) -> None:
+    subprocess.run(args, cwd=root, env=env, check=True)
+
+
+def task_state(root: Path) -> tuple[Path, dict]:
+    directory = Path.home() / ".local/state/agent-vm/tasks" / task_name(root)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (directory / "state.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory / "state.json"
+        if path.exists():
+            state = json.loads(path.read_text())
+            if state.get("root") != str(root.resolve()) or state.get("project") != task_name(root):
+                raise ValueError("Task state does not belong to this worktree")
+            return directory, state
+        import secrets
+        state = {"root": str(root.resolve()), "project": task_name(root), "password": secrets.token_urlsafe(24)}
+        descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".state-")
+        try:
+            with os.fdopen(descriptor, "w") as output:
+                json.dump(state, output)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return directory, state
+
+
+def compose_config(state: dict) -> dict:
+    return {
+        "services": {
+            "db": {
+                "image": "postgres:17",
+                "environment": {"POSTGRES_USER": "agent", "POSTGRES_PASSWORD": state["password"],
+                                "POSTGRES_DB": "whatsin"},
+                "ports": [{"target": 5432, "published": "0", "host_ip": "127.0.0.1"}],
+                "volumes": ["db:/var/lib/postgresql/data"],
+                "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U agent -d whatsin"],
+                                "interval": "2s", "timeout": "3s", "retries": 30},
+            },
+        },
+        "volumes": {"db": {}},
+    }
+
+
+def compose_args(directory: Path, state: dict) -> list[str]:
+    path = directory / "compose.json"
+    if not path.exists():
+        path.touch(mode=0o600)
+    path.write_text(json.dumps(compose_config(state)))
+    return ["docker", "compose", "--project-name", state["project"], "-f", str(path)]
+
+
+def setup(root: Path, preset: str, env: dict[str, str]) -> None:
+    run(root, env, "pnpm", "--version")
+    run(root, env, "docker", "compose", "version")
+    if preset == "compose":
+        print("Compose tooling ready. No stacks started; validate only the stack changed by the task.")
+        return
+    if not (root / "pnpm-lock.yaml").is_file():
+        raise ValueError("pnpm-lock.yaml is required for a reproducible web bootstrap")
+    if not (root / ".env.development").is_file():
+        raise ValueError(".env.development is missing; configure it in the source checkout for Kandev to copy")
+    run(root, env, "pnpm", "install", "--frozen-lockfile")
+    # Generators need a URL, but setup never connects to or changes a database.
+    env = dict(env, DIRECT_DATABASE_URL="postgresql://agent:unused@127.0.0.1:1/whatsin")
+    run(root, env, "pnpm", "env:dev", "--", "pnpm", "run", "workspace:prepare")
+    run(root, env, "pnpm", "-F", "@whatsin/tests", "exec", "playwright", "install", "chromium")
+    print("Web dependencies, generated contracts, and Chromium ready. Start the preview to create a task database.")
+
+
+def preview(root: Path, env: dict[str, str]) -> None:
+    directory, state = task_state(root)
+    # One preview per worktree. The process holds this lock until it exits.
+    with (directory / "preview.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError("This worktree already has a running preview") from exc
+        compose = compose_args(directory, state)
+        run(root, env, *compose, "up", "-d", "--wait", "--wait-timeout", "90")
+        address = subprocess.check_output([*compose, "port", "db", "5432"], cwd=root, env=env, text=True).strip()
+        if not re.fullmatch(r"127\.0\.0\.1:\d+", address):
+            raise ValueError("Task database must be published on loopback only")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        env = dict(env, DIRECT_DATABASE_URL=f"postgresql://agent:{state['password']}@{address}/whatsin",
+                   PUBLIC_APP_URL=f"http://localhost:{port}",
+                   WRANGLER_LOG_PATH=str(directory / "wrangler-logs"),
+                   XDG_CONFIG_HOME=str(directory / "config"))
+        # Bypass the root turbo dev task: it invokes push:dev with --accept-data-loss.
+        # Only this newly isolated local database is eligible for schema preparation.
+        run(root, env, "pnpm", "env:dev", "--", "pnpm", "-F", "@whatsin/db", "exec", "prisma",
+            "db", "push", "--skip-generate", "--schema", "./prisma/schema.prisma")
+        run(root, env, "pnpm", "-F", "@whatsin/web", "run", "swagger:assets")
+        print(f"Task preview: http://127.0.0.1:{port} (open this port in Kandev)", flush=True)
+        # Kandev owns this foreground process and its termination. No detached web server.
+        run(root, env, "pnpm", "env:dev", "--", "pnpm", "-F", "@whatsin/web", "exec", "vite",
+            "dev", "--host", "127.0.0.1", "--port", str(port), "--strictPort")
+
+
+def cleanup(root: Path, env: dict[str, str]) -> None:
+    directory = Path.home() / ".local/state/agent-vm/tasks" / task_name(root)
+    if not (directory / "state.json").exists():
+        print("No task-owned services to clean up")
+        return
+    directory, state = task_state(root)
+    with (directory / "preview.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError("Stop this worktree's preview in Kandev before cleanup") from exc
+        # Keep the named database volume. Never prune volumes, other projects, or worktrees.
+        run(root, env, *compose_args(directory, state), "down")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=["setup", "preview", "cleanup"])
+    parser.add_argument("--preset", choices=["whatsin-fyi", "compose"], required=True)
+    args = parser.parse_args()
+    root = Path.cwd().resolve()
+    env = tool_environment(root)
+    if args.action == "setup":
+        setup(root, args.preset, env)
+    elif args.preset == "compose":
+        print("This infrastructure repository uses static Compose validation; no automatic preview or stack cleanup.")
+    elif args.action == "preview":
+        preview(root, env)
+    else:
+        cleanup(root, env)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(str(exc)) from exc
