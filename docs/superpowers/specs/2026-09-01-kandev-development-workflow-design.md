@@ -1,5 +1,9 @@
 # Kandev Development Workflow Design
 
+> Historical design. The 2026-09-05 VM simplification supersedes the mandatory
+> Superpowers requirements below: it is available only for explicit user requests.
+> The current contract is `workflows/development.yaml` and `workflows/README.md`.
+
 Date: 2026-09-01
 Status: Approved
 

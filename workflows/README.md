@@ -11,7 +11,8 @@ selects the first auto-starting step and therefore bypasses Backlog.
 
 Required agent/runtime capabilities:
 
-- Superpowers and `ggs` are available to every new task session.
+- `ggs` is available to every new task session. Superpowers is optional and used only
+  when explicitly requested by the user.
 - The profile can update Kandev plans, write and commit task worktrees, and push.
 - GitHub publication uses the connected Codex GitHub integration, never `gh`.
 - Other hosting providers expose the provider integration supported by `ggs`.

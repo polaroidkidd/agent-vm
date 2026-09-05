@@ -27,15 +27,12 @@ workflows:
 
           Skill loading:
 
-          1. Inspect the active skill catalog for Superpowers. Load only the skills
-             required for the current refinement phase.
-          2. If Superpowers is unavailable, report that prerequisite as a blocker and
-             remain in Refinement. Do not claim the plan is complete.
-          3. If the task description is light or underspecified, ask the user whether
-             the task should be brainstormed further before refinement continues. Wait
-             for the answer. If approved, follow the Superpowers brainstorming flow.
-          4. Continue with the applicable Superpowers planning flow after requirements
-             and design decisions are approved.
+          1. Follow repository instructions and load only skills needed for this task.
+          2. Do not load Superpowers unless the user explicitly requests it. Its absence
+             is not a blocker; refine and plan directly using the requirements below.
+          3. If the task description is underspecified, inspect the repository first.
+             Ask focused questions only for decisions that cannot be inferred safely.
+          4. Continue planning once requirements and design decisions are settled.
 
           During refinement:
 
@@ -109,8 +106,8 @@ workflows:
           2. Read docs/plans/<task-id>.md. The Kandev task plan is authoritative. If a
              user edited it in Kandev, mirror the exact current plan to the Markdown
              file and use ggs to make a plan-only commit before implementation.
-          3. Lazily load the applicable Superpowers execution skills when available and
-             implement the approved plan task by task.
+          3. Follow repository instructions and implement the approved plan task by task.
+             Load Superpowers execution skills only if the user explicitly requests them.
           4. Add or update the specified tests. Run verification proportional to risk
              and confirm the actual command output before claiming success.
           5. Preserve unrelated work. Use ggs to stage explicit paths, inspect staged
