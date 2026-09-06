@@ -45,8 +45,9 @@ Refinement starts automatically in a fresh context, resolves ambiguity, and prod
 approved, committed plan. Moving the task from Refinement to In Progress is the approval
 signal. In Progress starts automatically in another fresh context, implements the plan,
 commits and pushes the work, and signals completion. Review starts in a fresh context,
-returns blocker findings to In Progress, or opens a ready-for-review change request and
-signals Done. Done is terminal.
+then waits for a human to start the review agent. The review returns blocker findings to
+In Progress, or opens a ready-for-review change request and signals Done. Done is
+terminal.
 
 ## Documented Kandev Constraints
 
@@ -61,6 +62,11 @@ signals Done. Done is terminal.
 - Automatic In Progress and Review transitions use
   `auto_advance_requires_signal: true`. Explicit cancellation does not count as
   completion because `cancel_triggers_turn_complete` is false.
+- Review deliberately omits `auto_start_agent`. Kandev 0.93.0 can lose a reentrant
+  prompt when an automatically completed In Progress turn enters Review, resets its
+  context, and immediately auto-starts the same agent execution. Starting Review
+  manually after the transition avoids leaving the session permanently running without
+  dispatching a model request.
 - Workflow Sync matches synced workflows by source path and name and does not adopt a
   manual workflow with the same name.
 - The workflow YAML cannot install agent-native skills or supply a hosting integration.
@@ -162,7 +168,7 @@ The implementation prompt must:
 ### Review
 
 - Position 3.
-- On entry, reset agent context and then auto-start the agent.
+- On entry, reset agent context and wait for a human to start the agent.
 - On turn completion, move to Done only after `step_complete_kandev` is received.
 - Explicit cancellation never advances the task.
 
@@ -247,8 +253,8 @@ the GitHub CLI. Other providers follow the provider routing defined by `ggs`.
 - UI plan edits are committed to the Markdown plan before implementation.
 - In Progress cannot reach Review without successful verification, commits, push, and
   the explicit completion signal.
-- Review starts with a fresh context and returns blockers to In Progress with a
-  persisted handoff.
+- Review resets to a fresh context, waits for a human start, and returns blockers to In
+  Progress with a persisted handoff.
 - Review always covers the confirmed target's merge-base-to-HEAD diff, even when
   unrelated worktree changes exist, and includes intended staged, unstaged, or
   untracked contents.
@@ -269,8 +275,8 @@ the GitHub CLI. Other providers follow the provider routing defined by `ggs`.
 - Assert unique contiguous positions and exactly one start step.
 - Assert Backlog and Done have empty event maps.
 - Assert Refinement has no turn-complete move and no pull source.
-- Assert In Progress and Review require completion signals and reject cancellation as
-  completion.
+- Assert In Progress and Review require completion signals, reject cancellation as
+  completion, and Review does not auto-start reentrantly.
 - Assert only recognized portable event types and valid step positions are used.
 - Assert prompts contain the required skill, plan, Git, review, and publication guards.
 - Assert the workflow contains no PR-Agent references.

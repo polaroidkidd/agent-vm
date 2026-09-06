@@ -229,7 +229,6 @@ workflows:
         events:
           on_enter:
             - type: reset_agent_context
-            - type: auto_start_agent
           on_turn_complete:
             - type: move_to_step
               config:

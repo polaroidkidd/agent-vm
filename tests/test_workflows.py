@@ -71,13 +71,10 @@ class WorkflowDefinitionTests(unittest.TestCase):
         self.assertTrue(step["auto_advance_requires_signal"])
         self.assertFalse(step["cancel_triggers_turn_complete"])
 
-    def test_review_requires_signal_before_done(self):
+    def test_review_resets_without_reentrant_auto_start_and_requires_signal(self):
         step = self.steps["Review"]
         self.assertEqual(
-            [
-                {"type": "reset_agent_context"},
-                {"type": "auto_start_agent"},
-            ],
+            [{"type": "reset_agent_context"}],
             step["events"]["on_enter"],
         )
         self.assertEqual(
