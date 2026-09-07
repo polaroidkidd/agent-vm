@@ -21,7 +21,7 @@ ticket prefix, package manager, or CI system.
 
 - Use native `git` for local history, staging, commits, fetches, rebases, and pushes.
 - For GitHub repositories, use the relevant Codex GitHub skill and connected GitHub
-  integration for pull requests, issues, reviews, comments, and checks. Never use `gh`.
+  integration for pull requests, issues, reviews, comments, and checks. 
 - For GitLab repositories, use an available connected integration; otherwise use
   authenticated `glab` when installed and allowed.
 - For other hosts, prefer an available connected integration or supported host tool.
