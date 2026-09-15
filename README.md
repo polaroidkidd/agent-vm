@@ -177,7 +177,12 @@ command availability. Shell history and completion caches live in writable XDG
 locations; Oh My Zsh does not update itself during shell startup.
 
 The VM includes `rg`, `fd`, `fzf`, `sqlite3`, `tmux`, `vim`, `tree`, Python/pip/pipx,
-`uv`, Docker/Compose, and stable Node/Corepack/pnpm/Yarn entry points. Kandev's
+`uv`, Docker/Compose, Codex CLI, and stable Node/Corepack/pnpm/Yarn entry points.
+Codex is exposed as `/usr/local/bin/codex` for interactive and noninteractive
+sessions. `create` and `update` resolve its latest stable npm release and record
+the exact version; `provision` retains that version. Older state without a Codex
+entry uses `0.154.0` until the next update. Run `codex`
+as the `agent` user to sign in on first use. Kandev's
 systemd unit permits writes to workspaces, Pi configuration, npm/XDG caches, local
 user data, and the GPG keyring. These paths are shared by trusted agents in this
 single-user VM; they are not task isolation boundaries. Task databases and preview

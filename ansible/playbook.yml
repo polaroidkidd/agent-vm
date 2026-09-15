@@ -426,12 +426,33 @@
         HOME: "/home/{{ agent_user }}"
       register: nvm_node_binary
       changed_when: false
-      tags: [services]
+      tags: [services, codex]
 
     - name: Record active NVM Node.js binary directory
       ansible.builtin.set_fact:
         nvm_node_bin_dir: "{{ nvm_node_binary.stdout | trim | dirname }}"
-      tags: [services]
+      tags: [services, codex]
+
+    - name: Install pinned Codex CLI
+      community.general.npm:
+        name: "@openai/codex"
+        version: "{{ versions.codex.version | default('0.154.0') }}"
+        executable: "{{ nvm_node_bin_dir }}/npm"
+        global: true
+        state: present
+      become_user: "{{ agent_user }}"
+      environment:
+        HOME: "/home/{{ agent_user }}"
+        PATH: "{{ nvm_node_bin_dir }}:/usr/local/bin:/usr/bin:/bin"
+      tags: [services, codex]
+
+    - name: Expose Codex CLI in noninteractive sessions
+      ansible.builtin.file:
+        src: "{{ nvm_node_bin_dir }}/codex"
+        dest: /usr/local/bin/codex
+        state: link
+        force: true
+      tags: [services, codex]
 
     - name: Activate NVM-managed Node.js tools
       ansible.builtin.file:

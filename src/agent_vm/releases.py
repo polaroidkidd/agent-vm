@@ -88,6 +88,7 @@ def github_latest(repository: str, asset_pattern: str) -> Release:
 def resolve_all(config: Config) -> dict:
     services = config.services
     values = {
+        "codex": npm_latest("@openai/codex").to_dict(),
         "kandev": npm_latest(services["kandev"]["npm_package"]).to_dict(),
         "pi": npm_latest(services["pi"]["npm_package"]).to_dict(),
         "pi_superpowers": npm_latest(

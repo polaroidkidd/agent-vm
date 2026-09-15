@@ -78,6 +78,12 @@ class ReleaseTests(unittest.TestCase):
 
         releases = resolve_all(config)
 
+        self.assertEqual(releases["codex"]["version"], "5.1.0")
+        self.assertEqual(releases["codex"]["source"], "npm:@openai/codex")
+        metadata.assert_any_call(
+            "https://registry.npmjs.org/%40openai%2Fcodex/latest",
+            accept="application/json",
+        )
         self.assertIn("pi_superpowers", releases)
         self.assertEqual(
             releases["pi_superpowers"],
