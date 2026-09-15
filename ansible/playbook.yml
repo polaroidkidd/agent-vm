@@ -884,14 +884,17 @@
       tags: [services]
 
     - name: Wait for Kandev before configuring Workflow Sync
+      # /health reports success while startup session recovery still gates the API.
+      # Probe the endpoint required by the next configuration step instead.
       ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ ports.kandev }}/health"
+        url: "http://127.0.0.1:{{ ports.kandev }}/api/v1/workspaces"
         method: GET
         status_code: 200
+        timeout: 10
       register: kandev_workflow_sync_health
       until: kandev_workflow_sync_health.status == 200
-      retries: 30
-      delay: 2
+      retries: 120
+      delay: 5
       tags: [services, kandev, kandev-workflow]
 
     - name: Refresh Kandev after a model catalog migration
