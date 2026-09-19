@@ -20,9 +20,8 @@ a provider tool. Do not send credentials or private remote URLs to unrelated ser
 
 ### GitHub
 
-Use the relevant available Codex GitHub skill and connected GitHub integration for
-repository, pull request, issue, review, comment, check, and Actions operations. Never
-use the GitHub CLI (`gh`). If the integration cannot perform a requested operation,
+Use the the GitHub CLI (`gh`) for repository, pull request, issue, review, comment, 
+check, and Actions operations.  If the integration cannot perform a requested operation,
 state that limitation and ask the user how to proceed.
 
 ### GitLab
